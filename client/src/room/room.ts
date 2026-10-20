@@ -9,11 +9,17 @@ import { ShadowGenerator } from '@babylonjs/core/Lights/Shadows/shadowGenerator'
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
+import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { loadModel } from './model';
-import { stepMotion, type Motion } from './movement';
+import { nearPortal, portalPosition, stepFollowing, stepMotion, type Motion } from './movement';
+import type { Pet } from '../pets/pets';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 
-export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, loading: HTMLElement) {
+export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, loading: HTMLElement, options: {
+  portalHint: HTMLElement;
+  onPortal: () => void;
+  onPetStatus: (message: string) => void;
+}) {
   if (!Engine.isSupported()) throw new Error('WebGL is not supported');
   const engine = new Engine(canvas, true, { stencil: true });
   const scene = new Scene(engine);
@@ -79,20 +85,24 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   trim.material = trimMaterial;
 
   const portalMaterial = new StandardMaterial('portal-glow', scene);
-  portalMaterial.emissiveColor = new Color3(.05, .48, 1);
+  portalMaterial.emissiveColor = new Color3(.4, .85, 1);
   portalMaterial.diffuseColor = new Color3(.02, .15, .6);
   portalMaterial.disableLighting = true;
-  const portal = MeshBuilder.CreateTorus('decorative-portal', { diameter: 2.15, thickness: .08, tessellation: 64 }, scene);
+  const portal = MeshBuilder.CreateTorus('pet-room-portal', { diameter: 3, thickness: .07, tessellation: 96 }, scene);
   portal.rotation.x = Math.PI / 2;
   portal.scaling.x = .7;
-  portal.position.set(0, 2.2, 9.65);
+  portal.position.set(portalPosition.x, 1.6, portalPosition.z);
   portal.material = portalMaterial;
+  const glow = new GlowLayer('portal-glow', scene, { blurKernelSize: 32 });
+  glow.intensity = .85;
+  glow.addIncludedOnlyMesh(portal);
   const innerMaterial = new StandardMaterial('portal-inner', scene);
-  innerMaterial.diffuseColor = new Color3(.03, .19, .5);
-  innerMaterial.emissiveColor = new Color3(.015, .1, .3);
-  innerMaterial.alpha = .65;
-  const inner = MeshBuilder.CreateDisc('portal-inner', { radius: 1.04, tessellation: 64 }, scene);
-  inner.position.set(0, 2.2, 9.7);
+  innerMaterial.diffuseColor = new Color3(.3, .45, 1);
+  innerMaterial.emissiveColor = new Color3(.2, .32, .8);
+  innerMaterial.alpha = .28;
+  innerMaterial.backFaceCulling = false;
+  const inner = MeshBuilder.CreateDisc('portal-inner', { radius: 1.46, tessellation: 96 }, scene);
+  inner.position.set(portalPosition.x, 1.6, portalPosition.z + .03);
   inner.scaling.x = .7;
   inner.material = innerMaterial;
 
@@ -100,18 +110,54 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   const motion: Motion = { x: 0, y: 0, z: 0, velocityY: 0 };
   let jumpRequested = false;
   let disposed = false;
+  let paused = false;
+  let petVersion = 0;
+  let companion: Awaited<ReturnType<typeof loadModel>> | undefined;
+  let companionAnimation = '';
   let actor: Awaited<ReturnType<typeof loadModel>> | undefined;
   let animation = '';
   const resetKeys = () => { keys.clear(); jumpRequested = false; };
+  const clearPet = (model: Awaited<ReturnType<typeof loadModel>>) => {
+    model.container.meshes.forEach(mesh => shadows.removeShadowCaster(mesh));
+    model.container.dispose();
+    model.actor.dispose();
+  };
+  const setPet = async (pet: Pet | null) => {
+    const version = ++petVersion;
+    if (companion) { clearPet(companion); companion = undefined; }
+    companionAnimation = '';
+    if (disposed) return;
+    options.onPetStatus(pet ? '펫을 불러오고 있어요.' : '');
+    if (!pet) return;
+    try {
+      const model = await loadModel(scene, pet.modelPath, .75);
+      if (disposed || version !== petVersion) { clearPet(model); return; }
+      companion = model;
+      model.actor.position.set(motion.x > 7.3 ? motion.x - 1.4 : motion.x + 1.4, 0, motion.z);
+      model.container.meshes.forEach(mesh => shadows.addShadowCaster(mesh));
+      options.onPetStatus('');
+    } catch (error) {
+      if (disposed || version !== petVersion) return;
+      options.onPetStatus('펫을 불러오지 못했어요. 펫 창(P)에서 해제 후 다시 장착해주세요.');
+      console.error(error);
+    }
+  };
   const keyDown = (event: KeyboardEvent) => {
-    if (document.activeElement !== canvas || !actor) return;
+    if (paused || document.activeElement !== canvas || !actor || !loading.hidden) return;
+    if (event.code === 'KeyE' && !event.repeat && nearPortal(motion)) {
+      event.preventDefault();
+      paused = true;
+      resetKeys();
+      options.onPortal();
+      return;
+    }
     if (!['KeyW', 'KeyA', 'KeyS', 'KeyD', 'Space'].includes(event.code)) return;
     event.preventDefault();
     keys.add(event.code);
     if (event.code === 'Space' && !event.repeat) jumpRequested = true;
   };
   const keyUp = (event: KeyboardEvent) => { keys.delete(event.code); };
-  const focusCanvas = () => { if (!document.querySelector('dialog[open]')) canvas.focus(); };
+  const focusCanvas = () => { if (!paused && !document.querySelector('dialog[open]')) canvas.focus(); };
   const resize = () => engine.resize();
   const visibility = () => { if (document.hidden) resetKeys(); };
   window.addEventListener('keydown', keyDown);
@@ -148,10 +194,14 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
 
   engine.runRenderLoop(() => {
     if (disposed) return;
+    const seconds = engine.getDeltaTime() / 1000;
+    const pulse = (Math.sin(performance.now() / 550) + 1) / 2;
+    glow.intensity = .7 + pulse * .3;
+    innerMaterial.alpha = .2 + pulse * .12;
     if (actor && loading.hidden) {
       const x = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
       const z = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
-      stepMotion(motion, x, z, jumpRequested, engine.getDeltaTime() / 1000);
+      stepMotion(motion, x, z, jumpRequested, seconds);
       jumpRequested = false;
       actor.actor.position.set(motion.x, motion.y, motion.z);
       if (x || z) actor.actor.rotation.y = Math.atan2(x, z);
@@ -165,6 +215,18 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
       cameraTarget.set(motion.x, 1, motion.z);
       camera.position.set(motion.x, 8.7, motion.z - 12);
       camera.setTarget(cameraTarget);
+      options.portalHint.hidden = paused || !nearPortal(motion);
+      if (companion && !paused) {
+        const position = companion.actor.position;
+        const moving = stepFollowing(position, motion, seconds);
+        if (moving) companion.actor.rotation.y = Math.atan2(motion.x - position.x, motion.z - position.z);
+        const nextPetAnimation = moving ? 'Walk' : 'Idle';
+        if (nextPetAnimation !== companionAnimation) {
+          companion.container.animationGroups.forEach(group => group.stop());
+          companion.container.animationGroups.find(group => group.name.endsWith(`|${nextPetAnimation}`))?.start(true);
+          companionAnimation = nextPetAnimation;
+        }
+      }
     }
     scene.render();
     if (actor && !nameTag.hidden) {
@@ -174,8 +236,9 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     }
   });
 
-  return () => {
+  const dispose = () => {
     disposed = true;
+    ++petVersion;
     resetKeys();
     window.removeEventListener('keydown', keyDown);
     window.removeEventListener('keyup', keyUp);
@@ -187,5 +250,14 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     engine.stopRenderLoop();
     scene.dispose();
     engine.dispose();
+  };
+  return {
+    dispose,
+    setPet: (pet: Pet | null) => { void setPet(pet); },
+    setPaused(value: boolean) {
+      paused = value;
+      resetKeys();
+      if (paused) options.portalHint.hidden = true;
+    },
   };
 }
