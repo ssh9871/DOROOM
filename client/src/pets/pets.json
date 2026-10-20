@@ -1,0 +1,15 @@
+{
+  "pets": [
+    {
+      "id": "pet-cat-001",
+      "species": "cat",
+      "name": "고양이",
+      "description": "마이룸에서 함께 다니는 작은 고양이입니다.",
+      "modelPath": "pet/simple-cat.glb",
+      "previewPath": "/assets/previews/pet.png",
+      "affection": 100,
+      "hunger": 100,
+      "ability": { "id": "shield", "name": "방어막" }
+    }
+  ]
+}
