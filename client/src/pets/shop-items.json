@@ -1,0 +1,6 @@
+{
+  "items": [
+    { "id": "pet-food-001", "name": "펫 사료", "description": "밥주기에 1개를 사용해요.", "type": "food", "price": 50, "previewPath": "/assets/items/pet-food.svg", "hungerGain": 20 },
+    { "id": "pet-ball-001", "name": "장난감 공", "description": "놀아주기에 1개를 사용해요. 공은 소모품이에요.", "type": "toy", "price": 50, "previewPath": "/assets/items/pet-ball.svg", "affectionGain": 20 }
+  ]
+}

@@ -35,3 +35,8 @@ export function stepFollowing(pet: { x: number; z: number }, target: { x: number
   pet.z = Math.max(-8.7, Math.min(8.7, pet.z + dz / distance * step));
   return true;
 }
+
+export const shopPosition = { x: 5.5, z: 6.5 };
+export function nearShop(state: Pick<Motion, 'x' | 'y' | 'z'>) {
+  return state.y === 0 && Math.hypot(state.x - shopPosition.x, state.z - shopPosition.z) <= 2;
+}
