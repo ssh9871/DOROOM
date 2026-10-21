@@ -1,4 +1,6 @@
-import { pet } from '../pets/pets';
+import { pet, type User } from '../pets/pets';
+
+const escapeText = (value: string) => value.replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]!));
 
 const icons: Record<string, string> = {
   paw: '<ellipse cx="12" cy="16" rx="6" ry="5" fill="currentColor" stroke="none"/><ellipse cx="4" cy="9" rx="2.2" ry="3" fill="currentColor" stroke="none"/><ellipse cx="9" cy="5" rx="2.2" ry="3" fill="currentColor" stroke="none"/><ellipse cx="15" cy="5" rx="2.2" ry="3" fill="currentColor" stroke="none"/><ellipse cx="20" cy="9" rx="2.2" ry="3" fill="currentColor" stroke="none"/>',
@@ -24,10 +26,10 @@ const icons: Record<string, string> = {
 
 const icon = (name: string) => `<svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${icons[name] ?? ''}</svg>`;
 
-function header(page: 'home' | 'minigames') {
+function header(page: 'home' | 'minigames', user: User) {
   return `<header class="site-header"><div class="header-top wrap">
     <div class="brand"><span class="brand-mark" aria-hidden="true">D<span></span></span>DOROBUS</div>
-    <div class="profile-bar"><span class="wallet"><span>⬡</span> 1,000</span><span class="level">Lv. 1</span><span class="mail">${icon('mail')}</span><div class="profile"><span class="profile-avatar">✦</span><span>DOROOM</span><span class="chevron">⌄</span></div></div>
+    <div class="profile-bar"><span class="wallet" aria-label="보유 ${user.cells.toLocaleString()} 셀"><span aria-hidden="true">⬡</span> ${user.cells.toLocaleString()}</span><span class="level">Lv. 1</span><span class="mail">${icon('mail')}</span><div class="profile"><span class="profile-avatar">✦</span><span>${escapeText(user.nickname)}</span><span class="chevron">⌄</span></div></div>
   </div><nav class="navigation wrap" aria-label="주 메뉴">
     ${page === 'home' ? '<span class="nav-item active" aria-current="page">대시보드</span>' : '<a class="nav-item" href="#home">대시보드</a>'}
     <span class="nav-item">내 수업</span><span class="nav-item">공작소</span><span class="nav-item">실제 계정 전환</span>
@@ -35,10 +37,10 @@ function header(page: 'home' | 'minigames') {
   </nav></header>`;
 }
 
-export function homeScreen() {
-  return `${header('home')}<main class="dashboard wrap">
+export function homeScreen(user: User) {
+  return `${header('home', user)}<main class="dashboard wrap">
     <section class="dashboard-top">
-      <article class="welcome-card"><div class="welcome-copy"><div class="online"><i></i> 접속 중</div><p class="hello">안녕하세요,</p><h1>DOROOM님 <span class="wave">👋</span></h1><p class="welcome-sub">오늘의 수업과 미션이 준비되어 있어요.</p></div>
+      <article class="welcome-card"><div class="welcome-copy"><div class="online"><i></i> 접속 중</div><p class="hello">안녕하세요,</p><h1>${escapeText(user.nickname)}님 <span class="wave">👋</span></h1><p class="welcome-sub">오늘의 수업과 미션이 준비되어 있어요.</p></div>
         <div class="welcome-art" aria-hidden="true"><span class="orbit orbit-one"></span><span class="orbit orbit-two"></span><span class="spark spark-one">✦</span><span class="spark spark-two">✧</span><img class="hero-pet" src="/assets/previews/pet.png" alt=""/><img class="hero-avatar" src="/assets/previews/avatar.png" alt=""/></div>
         <div class="welcome-stats"><div><strong>0<small>개</small></strong><span>수강 중인 수업</span></div><div><strong>0<small>개</small></strong><span>제출해야 할 과제</span></div></div>
       </article>
@@ -52,8 +54,8 @@ export function homeScreen() {
   </main>`;
 }
 
-export function gamesScreen() {
-  return `${header('minigames')}<main><section class="games-heading"><div class="wrap"><span class="eyebrow">PLAY & DISCOVER</span><h1>미니게임</h1><p>짧고 재미있는 게임으로 실력을 키워보세요.</p></div></section><section class="games-content wrap">
+export function gamesScreen(user: User) {
+  return `${header('minigames', user)}<main><section class="games-heading"><div class="wrap"><span class="eyebrow">PLAY & DISCOVER</span><h1>미니게임</h1><p>짧고 재미있는 게임으로 실력을 키워보세요.</p></div></section><section class="games-content wrap">
     <div class="game-toolbar"><div class="categories"><span class="selected">전체</span><span>탄막게임</span></div><div class="search-decoration" aria-hidden="true">게임 검색 ${icon('search')}</div></div>
     <article class="game-card"><div class="bullet-thumbnail" aria-label="우주선과 탄환을 그린 탄막게임 일러스트"><span class="new-badge">NEW</span><span class="planet"></span><span class="space-orbit"></span><span class="bullet-field"></span><svg class="spaceship" viewBox="0 0 100 130" aria-hidden="true"><defs><linearGradient id="ship" x2="0" y2="1"><stop stop-color="#e1f5ff"/><stop offset="1" stop-color="#62b9ff"/></linearGradient></defs><path d="m50 10 16 51 25 28-33-9-8 18-8-18-33 9 25-28Z" fill="url(#ship)"/><path d="m50 31 7 27H43Z" fill="#226de5"/><path d="m42 89 8 35 8-35" fill="#9fffee"/></svg><div class="thumbnail-caption">BULLET<br/><strong>UNIVERSE</strong></div></div>
     <div class="game-meta"><span>슈팅</span><i></i><span>탄막게임</span></div><h2>별빛 탄막게임</h2><p>쏟아지는 탄막을 피하며 우주를 누벼보세요.<br/>나만의 펫과 함께할 모험이 기다려요.</p><div class="game-record"><span>기록 없음</span><span aria-hidden="true">▂▅▇</span></div><button class="play-button" disabled>플레이하기</button></article>
@@ -61,13 +63,14 @@ export function gamesScreen() {
   </section></main>`;
 }
 
-export function roomScreen(petRoom = false) {
+export function roomScreen(petRoom: boolean, user: User) {
   const title = petRoom ? '펫 마이룸' : '마이룸';
   const menuItems = [['bag', '인벤토리', 'I'], ['book', '칭호북', 'T'], ['trophy', '랭킹', 'R'], ['smile', '감정표현', 'V'], ['paw', '펫', 'P'], ['picture', '창작물', 'C'], ['preset', '프리셋', '']];
   return `<main class="room-shell"><aside class="room-sidebar" aria-label="마이룸 메뉴"><span class="room-emblem" aria-hidden="true">✦</span><span class="static-side">${icon('home')}</span><button class="menu-toggle" id="room-menu-toggle" aria-label="메뉴" aria-expanded="false" aria-controls="room-menu" title="메뉴">${icon('grid')}</button><div class="side-bottom"><span class="static-side">${icon('chat')}</span><span class="static-side">${icon('help')}</span><span class="static-side">${icon('settings')}</span><span class="static-side">${icon('external')}</span><button class="exit-button" id="exit-room" aria-label="${title} 나가기" title="나가기">${icon('exit')}</button></div></aside>
     <aside class="room-menu" id="room-menu" aria-labelledby="room-menu-title" hidden><h2 id="room-menu-title">메뉴</h2><nav aria-label="방 기능">${menuItems.map(([symbol, label, key]) => `<button ${symbol === 'paw' ? 'id="open-pets"' : 'disabled'}>${icon(symbol!)}<span>${label}</span>${key ? `<kbd>${key}</kbd>` : ''}</button>`).join('')}</nav></aside>
-    <section class="room-stage" aria-label="3D ${title}"><canvas id="room-canvas" tabindex="0" aria-label="${title}: WASD 이동, Space 점프, P 펫, 포털 근처 E 이동"></canvas><span class="room-name-tag" id="room-name-tag" hidden>DOROOM</span><div class="room-top-label"><i></i> ${petRoom ? 'PET ROOM' : 'MY ROOM'} <span>${petRoom ? '펫과 함께하는 작은 공간' : '나만의 작은 공간'}</span></div><span class="room-people">${icon('people')} 1</span><div class="room-loading" role="status">${title}을 준비하고 있어요<span>잠시만 기다려주세요.</span></div><div class="portal-hint" id="portal-hint" hidden><kbd>E</kbd><span>${petRoom ? '마이룸' : '펫 마이룸'}으로 이동</span></div><p class="pet-scene-status" id="pet-scene-status" role="status" hidden></p><div class="room-controls"><span><kbd>W</kbd><span class="wasd"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>이동</span><span class="control-divider"></span><kbd class="space-key">SPACE</kbd><span>점프</span><kbd>P</kbd><span>펫</span><small>화면을 클릭하면 조작할 수 있어요</small></div><div class="chat-decoration" aria-hidden="true"><span>채팅을 입력해 주세요</span><span>➤</span></div></section>
-    <dialog class="pet-dialog" id="pet-dialog" aria-labelledby="pet-title"><header class="pet-dialog-header"><h2 id="pet-title">${icon('paw')} 펫</h2><button id="close-pets" aria-label="펫 창 닫기" autofocus>×</button></header><div class="pet-dialog-body"><div class="pet-list" aria-label="보유 펫"><button class="pet-card" aria-label="${pet.name} 선택" aria-pressed="true"><span class="pet-equipped-badge" id="pet-equipped-badge" hidden>장착중</span><img src="${pet.previewPath}" alt=""/><strong>${pet.name}</strong></button></div><section class="pet-detail" aria-labelledby="pet-name"><div class="pet-preview"><img src="${pet.previewPath}" alt="${pet.name} 미리보기"/></div><h3 id="pet-name">${pet.name}</h3><p class="pet-description">${pet.description}</p><dl class="pet-stats"><div><dt>호감도</dt><dd>${pet.affection}/100</dd></div><div><dt>배고픔</dt><dd>${pet.hunger}/100</dd></div><div><dt>능력</dt><dd>${pet.ability.name}</dd></div></dl><button class="pet-equip-button" id="toggle-pet">장착</button><p class="pet-save-notice" id="pet-save-notice" role="status" hidden>이 브라우저에 저장할 수 없어 새로고침하면 장착 상태가 초기화될 수 있어요.</p><p class="pet-model-notice" id="pet-model-notice" role="status" hidden></p></section></div></dialog>
+    <section class="room-stage" aria-label="3D ${title}"><canvas id="room-canvas" tabindex="0" aria-label="${title}: WASD 이동, Space 점프, P 펫, 포털 또는 상점 근처 E 상호작용"></canvas><span class="room-name-tag" id="room-name-tag" hidden>${escapeText(user.nickname)}</span><div class="room-top-label"><i></i> ${petRoom ? 'PET ROOM' : 'MY ROOM'} <span>${petRoom ? '펫과 함께하는 작은 공간' : '나만의 작은 공간'}</span></div><span class="room-people">${icon('people')} 1</span><div class="room-loading" role="status">${title}을 준비하고 있어요<span>잠시만 기다려주세요.</span></div><div class="portal-hint" id="portal-hint" hidden><kbd>E</kbd><span>${petRoom ? '마이룸' : '펫 마이룸'}으로 이동</span></div><div class="portal-hint" id="shop-hint" hidden><kbd>E</kbd><span>펫 상점 열기</span></div><p class="pet-scene-status" id="pet-scene-status" role="status" hidden></p><div class="room-controls"><span><kbd>W</kbd><span class="wasd"><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd></span></span><span>이동</span><span class="control-divider"></span><kbd class="space-key">SPACE</kbd><span>점프</span><kbd>P</kbd><span>펫</span><small>화면을 클릭하면 조작할 수 있어요</small></div><div class="chat-decoration" aria-hidden="true"><span>채팅을 입력해 주세요</span><span>➤</span></div></section>
+    <dialog class="pet-dialog" id="pet-dialog" aria-labelledby="pet-title"><header class="pet-dialog-header"><h2 id="pet-title">${icon('paw')} 펫</h2><button id="close-pets" aria-label="펫 창 닫기" autofocus>×</button></header><div class="pet-dialog-body"><div class="pet-list" aria-label="보유 펫"><button class="pet-card" aria-label="${pet.name} 선택" aria-pressed="true"><span class="pet-equipped-badge" id="pet-equipped-badge" hidden>장착중</span><img src="${pet.previewPath}" alt=""/><strong>${pet.name}</strong></button></div><section class="pet-detail" aria-labelledby="pet-name"><div class="pet-preview"><img src="${pet.previewPath}" alt="${pet.name} 미리보기"/></div><h3 id="pet-name">${pet.name}</h3><p class="pet-description">${pet.description}</p><dl class="pet-stats"><div><dt>호감도</dt><dd id="pet-affection">${pet.affection}/100</dd></div><div><dt>배고픔</dt><dd id="pet-hunger">${pet.hunger}/100</dd></div><div><dt>능력</dt><dd>${pet.ability.name}</dd></div></dl><p id="pet-progress"></p><button class="pet-equip-button" id="toggle-pet">장착</button><p class="pet-save-notice" id="pet-save-notice" role="status" hidden>이 브라우저에 저장할 수 없어 새로고침하면 펫과 사용자 상태가 초기화될 수 있어요.</p><p class="pet-model-notice" id="pet-model-notice" role="status" hidden></p></section></div></dialog>
+    <dialog class="pet-dialog pet-shop-dialog" id="shop-dialog" aria-labelledby="shop-title"><header class="pet-dialog-header"><h2 id="shop-title">펫 케어 상점</h2><span id="shop-wallet"></span><button id="close-shop" aria-label="펫 상점 닫기" autofocus>×</button></header><div id="shop-tabs" role="tablist" aria-label="펫 상점 기능"></div><section id="shop-panel" role="tabpanel" tabindex="0"></section><footer class="shop-footer"><p id="shop-result" role="status" aria-live="polite"></p><p id="shop-save-notice" role="status"></p></footer></dialog>
     <dialog class="exit-dialog" id="exit-dialog" aria-labelledby="exit-title" aria-describedby="exit-description"><form method="dialog"><div class="dialog-symbol">${icon('exit')}</div><h2 id="exit-title">${title}에서 나가시겠습니까?</h2><p id="exit-description">메인 화면으로 돌아갑니다.</p><div class="dialog-actions"><button value="cancel" autofocus>아니요</button><button class="confirm-exit" value="yes">네</button></div></form></dialog>
   </main>`;
 }

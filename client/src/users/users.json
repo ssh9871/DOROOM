@@ -1,0 +1,5 @@
+{
+  "users": [
+    { "id": "user-default", "nickname": "DOROOM", "cells": 1000, "items": { "pet-food-001": 0, "pet-ball-001": 0 } }
+  ]
+}

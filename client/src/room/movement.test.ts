@@ -1,4 +1,4 @@
-import { nearPortal, portalPosition, stepFollowing, stepMotion, type Motion } from './movement.ts';
+import { nearShop, nearPortal, portalPosition, stepFollowing, stepMotion, type Motion } from './movement.ts';
 
 function assert(condition: boolean, message: string) {
   if (!condition) throw new Error(message);
@@ -42,3 +42,11 @@ assert(nearPortal({ ...portalPosition, y: 0 }), 'Portal in range');
 assert(!nearPortal({ x: 0, z: 0, y: 0 }), 'Portal out of range');
 assert(!nearPortal({ ...portalPosition, y: .5 }), 'Portal requires ground');
 console.log('Following and portal: 9 checks passed');
+
+const shop = { x: 5.5, z: 6.5, y: 0 };
+assert(nearShop(shop), 'Shop in range');
+assert(nearShop({ ...shop, x: shop.x - 2 }), 'Shop boundary inclusive');
+assert(!nearShop({ ...shop, x: shop.x - 2.01 }), 'Shop beyond boundary');
+assert(!nearShop({ ...shop, y: .1 }), 'Shop requires ground');
+assert(!nearPortal(shop) && !nearShop({ ...portalPosition, y: 0 }), 'Shop and portal ranges separate');
+console.log('Shop proximity: 5 checks passed');

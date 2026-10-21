@@ -1,4 +1,5 @@
 {
+  "growth": { "experiencePerLevel": 100, "cellCostPerLevel": 100 },
   "pets": [
     {
       "id": "pet-cat-001",
@@ -7,8 +8,10 @@
       "description": "마이룸에서 함께 다니는 작은 고양이입니다.",
       "modelPath": "pet/simple-cat.glb",
       "previewPath": "/assets/previews/pet.png",
-      "affection": 100,
-      "hunger": 100,
+      "level": 1,
+      "experience": 100,
+      "affection": 50,
+      "hunger": 50,
       "ability": { "id": "shield", "name": "방어막" }
     }
   ]
