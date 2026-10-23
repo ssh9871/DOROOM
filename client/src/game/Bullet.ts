@@ -42,11 +42,6 @@ export class PlayerBullet extends Bullet {
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
-    // ─────────────────────────────────────────────────────────────
-    // [이미지 교체 안내] 정화의 빛 PNG로 바꾸려면 아래 도형 코드 대신:
-    //   ctx.drawImage(lightImg, this.x - this.width / 2, this.y - this.height / 2, this.width, this.height);
-    // (이미지가 더 크다면 width/height 값을 config.ts 의 PLAYER_BULLET 에서 함께 조정하세요.)
-    // ─────────────────────────────────────────────────────────────
     ctx.fillStyle = COLORS.playerBulletGlow;
     ctx.fillRect(this.x - this.width, this.y - this.height / 2, this.width * 2, this.height);
     ctx.fillStyle = COLORS.playerBullet;
