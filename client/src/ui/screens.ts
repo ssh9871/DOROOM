@@ -58,9 +58,10 @@ export function gamesScreen(user: User) {
   return `${header('minigames', user)}<main><section class="games-heading"><div class="wrap"><span class="eyebrow">PLAY & DISCOVER</span><h1>미니게임</h1><p>짧고 재미있는 게임으로 실력을 키워보세요.</p></div></section><section class="games-content wrap">
     <div class="game-toolbar"><div class="categories"><span class="selected">전체</span><span>탄막게임</span></div><div class="search-decoration" aria-hidden="true">게임 검색 ${icon('search')}</div></div>
     <article class="game-card"><div class="bullet-thumbnail" aria-label="우주선과 탄환을 그린 탄막게임 일러스트"><span class="new-badge">NEW</span><span class="planet"></span><span class="space-orbit"></span><span class="bullet-field"></span><svg class="spaceship" viewBox="0 0 100 130" aria-hidden="true"><defs><linearGradient id="ship" x2="0" y2="1"><stop stop-color="#e1f5ff"/><stop offset="1" stop-color="#62b9ff"/></linearGradient></defs><path d="m50 10 16 51 25 28-33-9-8 18-8-18-33 9 25-28Z" fill="url(#ship)"/><path d="m50 31 7 27H43Z" fill="#226de5"/><path d="m42 89 8 35 8-35" fill="#9fffee"/></svg><div class="thumbnail-caption">BULLET<br/><strong>UNIVERSE</strong></div></div>
-    <div class="game-meta"><span>슈팅</span><i></i><span>탄막게임</span></div><h2>별빛 탄막게임</h2><p>쏟아지는 탄막을 피하며 우주를 누벼보세요.<br/>나만의 펫과 함께할 모험이 기다려요.</p><div class="game-record"><span>기록 없음</span><span aria-hidden="true">▂▅▇</span></div><button class="play-button" disabled>플레이하기</button></article>
-    <p class="coming-note">탄막게임은 준비 중이에요. 곧 만나요!</p>
-  </section></main>`;
+    <div class="game-record"><span>기록 없음</span><span aria-hidden="true">▂▅▇</span></div>
+    <div id="minigame-container" style="margin-top: 20px; width: 100%; display: flex; justify-content: center;"></div>
+    <button class="play-button" id="start-minigame-btn">플레이하기</button></article>
+    </section></main>`;
 }
 
 export function roomScreen(petRoom: boolean, user: User) {
