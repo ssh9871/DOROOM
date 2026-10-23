@@ -1,6 +1,7 @@
 import { connectPetShop } from '../ui/petShop';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
+import { Game } from '../game/Game';
 
 export function startApp() {
   const root = document.querySelector<HTMLDivElement>('#app');
@@ -18,6 +19,96 @@ export function startApp() {
     document.body.classList.toggle('in-room', inRoom);
     root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', petState.user) : page === 'minigames' ? gamesScreen(petState.user) : homeScreen(petState.user);
     window.scrollTo(0, 0);
+    // 미니게임 화면일 경우 버튼 이벤트 연결
+    if (page === 'minigames') {
+      const playBtn = root!.querySelector<HTMLButtonElement>('#start-minigame-btn');
+      
+      if (playBtn) {
+        let gameInstance: Game | null = null;
+
+        playBtn.addEventListener('click', () => {
+          // 1. 기존 화면을 완벽히 덮는 '전체 화면 오버레이' 생성
+          const overlay = document.createElement('div');
+          overlay.id = 'game-fullscreen-overlay';
+          overlay.style.position = 'fixed';
+          overlay.style.top = '0';
+          overlay.style.left = '0';
+          overlay.style.width = '100vw';
+          overlay.style.height = '100vh';
+          overlay.style.backgroundColor = '#1a1a2e'; // 게임 배경색 (어두운 남색)
+          overlay.style.zIndex = '9999'; // 화면 맨 위로 올리기
+          overlay.style.display = 'flex';
+          overlay.style.flexDirection = 'column';
+          overlay.style.alignItems = 'center';
+          overlay.style.justifyContent = 'center';
+
+          // 2. 상단에 '< DOROBUS로 돌아가기' 버튼 영역 만들기
+          const header = document.createElement('div');
+          header.style.position = 'absolute';
+          header.style.top = '0';
+          header.style.left = '0';
+          header.style.width = '100%';
+          header.style.padding = '20px';
+          header.style.display = 'flex';
+          header.style.justifyContent = 'flex-start'; // 왼쪽 정렬
+          
+          const closeBtn = document.createElement('button');
+          closeBtn.innerText = '〈 DOROBUS로 돌아가기';
+          closeBtn.style.padding = '10px 20px';
+          closeBtn.style.backgroundColor = 'transparent';
+          closeBtn.style.color = '#fff';
+          closeBtn.style.border = 'none';
+          closeBtn.style.cursor = 'pointer';
+          closeBtn.style.fontSize = '16px';
+          closeBtn.style.fontWeight = 'bold';
+          
+          header.appendChild(closeBtn);
+          overlay.appendChild(header);
+
+          // 3. 게임 도화지(Canvas) 생성 및 중앙 배치
+          const canvas = document.createElement('canvas');
+          canvas.id = 'game';
+          // 종스크롤 게임에 맞게 캔버스 크기 고정 (원하는 사이즈로 조절 가능)
+          canvas.width = 600; 
+          canvas.height = 800;
+          canvas.style.boxShadow = '0 0 30px rgba(0, 0, 0, 0.8)'; // 게임 테두리에 살짝 그림자 효과
+          canvas.style.borderRadius = '12px'; // 테두리 둥글게
+          
+          overlay.appendChild(canvas);
+
+          // 4. 완성된 전체 화면 덮개를 웹페이지(body)에 부착
+          document.body.appendChild(overlay);
+
+          // 5. 게임 실행
+          gameInstance = new Game(canvas);
+          gameInstance.start();
+
+          // 이벤트를 감지하여 오버레이를 지우는 코드!
+         canvas.addEventListener('game-quit', () => {
+             const overlay = document.getElementById('game-fullscreen-overlay');
+             if (overlay) {
+                 document.body.removeChild(overlay);
+             }
+         });
+
+          // 6. 돌아가기 버튼을 눌렀을 때의 동작 (덮개 치우기)
+          closeBtn.addEventListener('click', () => {
+             // (선택) 마누스가 만든 Game 클래스에 게임 정지(stop) 함수가 있다면 여기서 호출
+             // gameInstance?.stop(); 
+             
+             // 덮개를 화면에서 삭제하여 원래 메뉴로 복귀
+             document.body.removeChild(overlay);
+          });
+        });
+
+        cleanup = () => {
+            // 다른 탭으로 이동할 때 오버레이가 남아있으면 삭제
+            const existingOverlay = document.getElementById('game-fullscreen-overlay');
+            if (existingOverlay) document.body.removeChild(existingOverlay);
+        };
+      }
+      return;
+    }
     if (!inRoom) return;
 
     const canvas = root!.querySelector<HTMLCanvasElement>('#room-canvas')!;
