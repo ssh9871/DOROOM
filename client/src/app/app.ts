@@ -92,9 +92,7 @@ export function startApp() {
          });
 
           // 6. 돌아가기 버튼을 눌렀을 때의 동작 (덮개 치우기)
-          closeBtn.addEventListener('click', () => {
-             // (선택) 마누스가 만든 Game 클래스에 게임 정지(stop) 함수가 있다면 여기서 호출
-             // gameInstance?.stop(); 
+          closeBtn.addEventListener('click', () => { 
              
              // 덮개를 화면에서 삭제하여 원래 메뉴로 복귀
              document.body.removeChild(overlay);
