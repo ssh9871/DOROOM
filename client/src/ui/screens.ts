@@ -60,7 +60,22 @@ export function gamesScreen(user: User) {
     <article class="game-card"><div class="bullet-thumbnail" aria-label="우주선과 탄환을 그린 탄막게임 일러스트"><span class="new-badge">NEW</span><span class="planet"></span><span class="space-orbit"></span><span class="bullet-field"></span><svg class="spaceship" viewBox="0 0 100 130" aria-hidden="true"><defs><linearGradient id="ship" x2="0" y2="1"><stop stop-color="#e1f5ff"/><stop offset="1" stop-color="#62b9ff"/></linearGradient></defs><path d="m50 10 16 51 25 28-33-9-8 18-8-18-33 9 25-28Z" fill="url(#ship)"/><path d="m50 31 7 27H43Z" fill="#226de5"/><path d="m42 89 8 35 8-35" fill="#9fffee"/></svg><div class="thumbnail-caption">BULLET<br/><strong>UNIVERSE</strong></div></div>
     <div class="game-record"><span>기록 없음</span><span aria-hidden="true">▂▅▇</span></div>
     <div id="minigame-container" style="margin-top: 20px; width: 100%; display: flex; justify-content: center;"></div>
-    <button class="play-button" id="start-minigame-btn">플레이하기</button></article>
+    <div class="game-actions">
+      <button class="play-button" id="start-minigame-btn" type="button">플레이하기</button>
+      <button class="leaderboard-button" id="leaderboard-btn" type="button" aria-haspopup="dialog" aria-controls="leaderboard-modal">🏆 내 기록 보기</button>
+    </div>
+    <div class="leaderboard-modal" id="leaderboard-modal" role="dialog" aria-modal="true" aria-labelledby="leaderboard-title" aria-hidden="true" hidden>
+      <div class="leaderboard-panel" role="document">
+        <button class="leaderboard-close" id="leaderboard-close-btn" type="button" aria-label="리더보드 닫기">×</button>
+        <span class="eyebrow">MY RECORD</span>
+        <h2 id="leaderboard-title">🏆 내 기록 보기</h2>
+        <div class="leaderboard-best"><span>내 최고 점수</span><strong id="leaderboard-best-score">기록 없음</strong></div>
+        <h3>최근 플레이 기록 Top 5</h3>
+        <ol class="leaderboard-list" id="leaderboard-list"></ol>
+        <button class="leaderboard-confirm" id="leaderboard-confirm-btn" type="button">닫기</button>
+      </div>
+    </div>
+    </article>
     </section></main>`;
 }
 
