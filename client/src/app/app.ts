@@ -1,7 +1,7 @@
 import { connectPetShop } from '../ui/petShop';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
-import { openGame } from '../ui/gameScreen';
+import { Game } from '../game/Game';
 
 export function startApp() {
   const root = document.querySelector<HTMLDivElement>('#app');
@@ -19,18 +19,178 @@ export function startApp() {
     document.body.classList.toggle('in-room', inRoom);
     root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', petState.user) : page === 'minigames' ? gamesScreen(petState.user) : homeScreen(petState.user);
     window.scrollTo(0, 0);
+    // 미니게임 화면일 경우 버튼 이벤트 연결
     if (page === 'minigames') {
-      const playBtn = root!.querySelector<HTMLButtonElement>('#start-minigame-btn')!;
-      let disposeGame: (() => void) | undefined;
-      const closeGame = () => {
-        disposeGame?.();
-        disposeGame = undefined;
-        playBtn.focus();
+      const playBtn = root!.querySelector<HTMLButtonElement>('#start-minigame-btn');
+      const leaderboardBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-btn');
+      const leaderboardModal = root!.querySelector<HTMLDivElement>('#leaderboard-modal');
+      const leaderboardCloseBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-close-btn');
+      const leaderboardConfirmBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-confirm-btn');
+      const leaderboardList = root!.querySelector<HTMLOListElement>('#leaderboard-list');
+      const leaderboardBestScore = root!.querySelector<HTMLElement>('#leaderboard-best-score');
+      const scoreHistoryKey = 'dorobus_scores';
+
+      const loadScores = (): number[] => {
+        try {
+          const raw = localStorage.getItem(scoreHistoryKey);
+          const parsed: unknown = raw ? JSON.parse(raw) : [];
+          return Array.isArray(parsed)
+            ? parsed
+              .filter((value): value is number => (
+                typeof value === 'number' && Number.isFinite(value) && value >= 0
+              ))
+              .sort((a, b) => b - a)
+            : [];
+        } catch {
+          return [];
+        }
       };
-      playBtn.addEventListener('click', () => {
-        if (!disposeGame) disposeGame = openGame(petState, closeGame);
-      });
-      cleanup = closeGame;
+
+      const renderLeaderboard = (): void => {
+        if (!leaderboardList || !leaderboardBestScore) return;
+        const scores = loadScores().slice(0, 5);
+        leaderboardBestScore.textContent = scores.length > 0
+          ? `${scores[0].toLocaleString()}점`
+          : '기록 없음';
+        leaderboardList.replaceChildren();
+
+        if (scores.length === 0) {
+          const empty = document.createElement('li');
+          empty.className = 'leaderboard-empty';
+          empty.textContent = '아직 플레이 기록이 없습니다.';
+          leaderboardList.appendChild(empty);
+          return;
+        }
+
+        scores.forEach((score, index) => {
+          const item = document.createElement('li');
+          item.className = 'leaderboard-item';
+          const rank = document.createElement('span');
+          rank.className = 'leaderboard-rank';
+          rank.textContent = `${index + 1}위`;
+          const value = document.createElement('strong');
+          value.className = 'leaderboard-score';
+          value.textContent = `${score.toLocaleString()}점`;
+          item.append(rank, value);
+          leaderboardList.appendChild(item);
+        });
+      };
+
+      const closeLeaderboard = (): void => {
+        if (!leaderboardModal) return;
+        leaderboardModal.hidden = true;
+        leaderboardModal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('leaderboard-open');
+        leaderboardBtn?.focus();
+      };
+
+      const openLeaderboard = (): void => {
+        if (!leaderboardModal) return;
+        renderLeaderboard();
+        leaderboardModal.hidden = false;
+        leaderboardModal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('leaderboard-open');
+        leaderboardCloseBtn?.focus();
+      };
+
+      const onLeaderboardKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === 'Escape' && leaderboardModal && !leaderboardModal.hidden) {
+          closeLeaderboard();
+        }
+      };
+      
+      if (playBtn) {
+        let gameInstance: Game | null = null;
+
+        leaderboardBtn?.addEventListener('click', openLeaderboard);
+        leaderboardCloseBtn?.addEventListener('click', closeLeaderboard);
+        leaderboardConfirmBtn?.addEventListener('click', closeLeaderboard);
+        leaderboardModal?.addEventListener('click', (event) => {
+          if (event.target === leaderboardModal) closeLeaderboard();
+        });
+        document.addEventListener('keydown', onLeaderboardKeyDown);
+
+        playBtn.addEventListener('click', () => {
+          // 1. 기존 화면을 완벽히 덮는 '전체 화면 오버레이' 생성
+          const overlay = document.createElement('div');
+          overlay.id = 'game-fullscreen-overlay';
+          overlay.style.position = 'fixed';
+          overlay.style.top = '0';
+          overlay.style.left = '0';
+          overlay.style.width = '100vw';
+          overlay.style.height = '100vh';
+          overlay.style.backgroundColor = '#1a1a2e'; // 게임 배경색 (어두운 남색)
+          overlay.style.zIndex = '9999'; // 화면 맨 위로 올리기
+          overlay.style.display = 'flex';
+          overlay.style.flexDirection = 'column';
+          overlay.style.alignItems = 'center';
+          overlay.style.justifyContent = 'center';
+
+          // 2. 상단에 '< DOROBUS로 돌아가기' 버튼 영역 만들기
+          const header = document.createElement('div');
+          header.style.position = 'absolute';
+          header.style.top = '0';
+          header.style.left = '0';
+          header.style.width = '100%';
+          header.style.padding = '20px';
+          header.style.display = 'flex';
+          header.style.justifyContent = 'flex-start'; // 왼쪽 정렬
+          
+          const closeBtn = document.createElement('button');
+          closeBtn.innerText = '〈 DOROBUS로 돌아가기';
+          closeBtn.style.padding = '10px 20px';
+          closeBtn.style.backgroundColor = 'transparent';
+          closeBtn.style.color = '#fff';
+          closeBtn.style.border = 'none';
+          closeBtn.style.cursor = 'pointer';
+          closeBtn.style.fontSize = '16px';
+          closeBtn.style.fontWeight = 'bold';
+          
+          header.appendChild(closeBtn);
+          overlay.appendChild(header);
+
+          // 3. 게임 도화지(Canvas) 생성 및 중앙 배치
+          const canvas = document.createElement('canvas');
+          canvas.id = 'game';
+          // 종스크롤 게임에 맞게 캔버스 크기 고정 (원하는 사이즈로 조절 가능)
+          canvas.width = 600; 
+          canvas.height = 800;
+          canvas.style.boxShadow = '0 0 30px rgba(0, 0, 0, 0.8)'; // 게임 테두리에 살짝 그림자 효과
+          canvas.style.borderRadius = '12px'; // 테두리 둥글게
+          
+          overlay.appendChild(canvas);
+
+          // 4. 완성된 전체 화면 덮개를 웹페이지(body)에 부착
+          document.body.appendChild(overlay);
+
+          // 5. 게임 실행
+          gameInstance = new Game(canvas);
+          gameInstance.start();
+
+          // 이벤트를 감지하여 오버레이를 지우는 코드!
+         canvas.addEventListener('game-quit', () => {
+             const overlay = document.getElementById('game-fullscreen-overlay');
+             if (overlay) {
+                 document.body.removeChild(overlay);
+             }
+         });
+
+          // 6. 돌아가기 버튼을 눌렀을 때의 동작 (덮개 치우기)
+          closeBtn.addEventListener('click', () => {
+             gameInstance?.stop();
+             // 덮개를 화면에서 삭제하여 원래 메뉴로 복귀
+             document.body.removeChild(overlay);
+          });
+        });
+
+        cleanup = () => {
+            // 다른 탭으로 이동할 때 오버레이가 남아있으면 삭제
+            const existingOverlay = document.getElementById('game-fullscreen-overlay');
+            if (existingOverlay) document.body.removeChild(existingOverlay);
+            document.removeEventListener('keydown', onLeaderboardKeyDown);
+            document.body.classList.remove('leaderboard-open');
+        };
+      }
       return;
     }
     if (!inRoom) return;
