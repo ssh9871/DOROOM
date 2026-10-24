@@ -1,0 +1,181 @@
+erDiagram
+    APP_USER {
+        int user_id PK
+        varchar login_id UK
+        varchar password_hash
+        varchar nickname UK
+        int cell_balance "잔액 캐시"
+        timestamptz created_at
+    }
+    CELL_TRANSACTION {
+        bigint tx_id PK
+        int user_id FK
+        int amount "+획득 -사용"
+        int balance_after
+        varchar reason
+        bigint ref_id "run/mail/gacha id"
+        timestamptz created_at
+    }
+    ABILITY {
+        int ability_id PK
+        varchar code UK
+        varchar name
+        numeric effect_value
+        int cooldown_sec
+        boolean is_active
+    }
+    PET_SPECIES {
+        int species_id PK
+        varchar name UK
+        varchar grade "RARE UNIQUE EPIC"
+        int innate_ability_id FK
+        varchar model_url
+        boolean is_active
+    }
+    EVOLUTION_RULE {
+        smallint evolution_stage PK "1~3"
+        int required_exp
+        int evolve_cell_cost
+        smallint ability_slot_count
+        boolean grants_revive
+    }
+    USER_PET {
+        int user_pet_id PK
+        int user_id FK
+        int species_id FK
+        smallint evolution_stage FK
+        int exp
+        smallint hunger "0~100"
+        smallint affection "0~100"
+        boolean is_representative
+        timestamptz last_interacted_at
+        date state_checked_on
+    }
+    USER_PET_ABILITY {
+        int user_pet_id PK, FK
+        smallint slot_no PK
+        int ability_id FK
+    }
+    ITEM {
+        int item_id PK
+        varchar code UK
+        varchar item_type "FOOD SNACK TOY"
+        int price_cell
+        smallint hunger_restore
+        smallint affection_restore
+        int exp_gain
+    }
+    USER_ITEM {
+        int user_id PK, FK
+        int item_id PK, FK
+        int quantity
+    }
+    PET_INTERACTION_LOG {
+        bigint log_id PK
+        int user_pet_id FK
+        varchar interaction_type "FEED PET WALK"
+        int item_id FK
+        timestamptz created_at
+    }
+    GACHA_POOL {
+        int pool_id PK
+        varchar name
+        int cost_cell
+        int pity_count
+        int daily_limit
+        boolean is_active
+    }
+    GACHA_POOL_ENTRY {
+        int pool_id PK, FK
+        int species_id PK, FK
+        int weight
+    }
+    GACHA_LOG {
+        bigint gacha_id PK
+        int user_id FK
+        int pool_id FK
+        int species_id FK
+        boolean is_duplicate
+        boolean is_pity
+        timestamptz created_at
+    }
+    STAGE {
+        smallint stage_no PK
+        varchar name
+        jsonb difficulty_config
+        int clear_bonus_score
+        int reward_cell
+    }
+    GAME_RUN {
+        bigint run_id PK
+        int user_id FK
+        int user_pet_id FK "NULL 허용"
+        int species_id FK "스냅샷"
+        varchar mode "STAGE ENDLESS"
+        varchar status
+        smallint reached_stage
+        int survival_ms
+        int kill_count
+        int score
+        boolean revive_used
+        int reward_cell
+        int exp_gained
+        date week_start
+    }
+    USER_STAGE_CLEAR {
+        int user_id PK, FK
+        smallint stage_no PK, FK
+        bigint first_run_id FK
+        timestamptz first_cleared_at
+    }
+    WEEKLY_RANKING_RESULT {
+        date week_start PK
+        int user_id PK, FK
+        int rank_no
+        int best_score
+        bigint best_run_id FK
+    }
+    RANKING_REWARD_TIER {
+        int tier_id PK
+        int rank_from
+        int rank_to
+        int reward_cell
+    }
+    REWARD_MAIL {
+        bigint mail_id PK
+        int user_id FK
+        varchar source_type
+        varchar source_key
+        int cell_amount
+        timestamptz claimed_at
+    }
+    GAME_SETTING {
+        varchar setting_key PK
+        varchar setting_value
+    }
+
+    APP_USER ||--o{ CELL_TRANSACTION : has
+    APP_USER ||--o{ USER_PET : owns
+    PET_SPECIES ||--o{ USER_PET : "is kind of"
+    ABILITY ||--o{ PET_SPECIES : innate
+    EVOLUTION_RULE ||--o{ USER_PET : stage
+    USER_PET ||--o{ USER_PET_ABILITY : equips
+    ABILITY ||--o{ USER_PET_ABILITY : ""
+    APP_USER ||--o{ USER_ITEM : holds
+    ITEM ||--o{ USER_ITEM : ""
+    USER_PET ||--o{ PET_INTERACTION_LOG : cared
+    ITEM |o--o{ PET_INTERACTION_LOG : used
+    GACHA_POOL ||--o{ GACHA_POOL_ENTRY : contains
+    PET_SPECIES ||--o{ GACHA_POOL_ENTRY : ""
+    APP_USER ||--o{ GACHA_LOG : pulls
+    GACHA_POOL ||--o{ GACHA_LOG : ""
+    PET_SPECIES ||--o{ GACHA_LOG : result
+    APP_USER ||--o{ GAME_RUN : plays
+    USER_PET |o--o{ GAME_RUN : sortie
+    PET_SPECIES ||--o{ GAME_RUN : snapshot
+    APP_USER ||--o{ USER_STAGE_CLEAR : clears
+    STAGE ||--o{ USER_STAGE_CLEAR : ""
+    GAME_RUN |o--o{ USER_STAGE_CLEAR : first
+    APP_USER ||--o{ WEEKLY_RANKING_RESULT : ranked
+    GAME_RUN |o--o{ WEEKLY_RANKING_RESULT : best
+    APP_USER ||--o{ REWARD_MAIL : receives

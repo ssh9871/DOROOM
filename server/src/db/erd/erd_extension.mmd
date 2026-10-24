@@ -1,0 +1,12 @@
+erDiagram
+    APP_USER ||--o{ USER_QUEST : "진행"
+    QUEST ||--o{ USER_QUEST : "퀘스트"
+    PET_SPECIES ||--o{ PET_SKIN : "종별 스킨"
+    APP_USER ||--o{ USER_PET_SKIN : "보유 스킨"
+    PET_SKIN ||--o{ USER_PET_SKIN : ""
+    PET_SKIN |o--o{ USER_PET : "착용"
+    APP_USER ||--o| FARM : "농장"
+    FARM ||--o{ FARM_OBJECT : "배치"
+    DECORATION ||--o{ FARM_OBJECT : "꾸미기 아이템"
+    APP_USER ||--o{ FARM_VISIT_LOG : "방문함"
+    FARM ||--o{ FARM_VISIT_LOG : "방문받음"

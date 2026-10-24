@@ -1,0 +1,25 @@
+erDiagram
+    APP_USER ||--o{ USER_PET : "보유"
+    PET_SPECIES ||--o{ USER_PET : "종류"
+    ABILITY ||--o{ PET_SPECIES : "고유 능력"
+    USER_PET ||--o{ USER_PET_ABILITY : "추가 장착"
+    ABILITY ||--o{ USER_PET_ABILITY : "능력"
+    EVOLUTION_RULE ||--o{ USER_PET : "진화 단계"
+
+    APP_USER ||--o{ GACHA_LOG : "뽑기"
+    GACHA_POOL ||--o{ GACHA_LOG : "풀"
+    GACHA_POOL ||--o{ GACHA_POOL_ENTRY : "구성"
+    PET_SPECIES ||--o{ GACHA_POOL_ENTRY : "후보"
+
+    APP_USER ||--o{ USER_ITEM : "인벤토리"
+    ITEM ||--o{ USER_ITEM : "아이템"
+    USER_PET ||--o{ PET_INTERACTION_LOG : "돌봄"
+
+    APP_USER ||--o{ GAME_RUN : "플레이"
+    USER_PET |o--o{ GAME_RUN : "출전"
+    APP_USER ||--o{ USER_STAGE_CLEAR : "클리어"
+    STAGE ||--o{ USER_STAGE_CLEAR : "스테이지"
+    APP_USER ||--o{ WEEKLY_RANKING_RESULT : "주간 순위"
+
+    APP_USER ||--o{ REWARD_MAIL : "우편 보상"
+    APP_USER ||--o{ CELL_TRANSACTION : "셀 내역"
