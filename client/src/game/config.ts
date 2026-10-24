@@ -64,8 +64,8 @@ export const PET = {
   /** 플레이어 기준 상대 위치: 옆-뒤(왼쪽 아래) */
   offsetX: -40,
   offsetY: 26,
-  /** 쉴드 발동 주기(초): 10초마다 한 번 */
-  shieldInterval: 10,
+  /** 수동 쉴드 발동 시점부터 재사용까지(초) */
+  shieldCooldown: 10,
   /** 쉴드 유지 시간(초): 3초 */
   shieldDuration: 3,
 } as const;
