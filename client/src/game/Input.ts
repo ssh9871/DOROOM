@@ -10,6 +10,7 @@ export class Input {
   private pointerHandler: ((event: MouseEvent) => void) | null = null;
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
+    if (this.attachedCanvas && e.target !== this.attachedCanvas) return;
     // 방향키/스페이스로 페이지가 스크롤되지 않도록 막습니다.
     if (e.code.startsWith('Arrow') || e.code === 'Space') e.preventDefault();
     if (!e.repeat) this.pressed.add(e.code);
@@ -21,7 +22,7 @@ export class Input {
   };
 
   private readonly onBlur = (): void => {
-    this.held.clear();
+    this.clear();
   };
 
   attach(canvas?: HTMLCanvasElement, onPointerDown?: (event: MouseEvent) => void): void {
@@ -61,6 +62,11 @@ export class Input {
   }
 
   /** 프레임 끝에서 호출해 "방금 눌림" 상태를 비웁니다. */
+  clear(): void {
+    this.held.clear();
+    this.pressed.clear();
+  }
+
   endFrame(): void {
     this.pressed.clear();
   }

@@ -130,13 +130,11 @@ export class Enemy {
         this.y += this.spec.speed * dt;
         break;
       case 'golem': {
-        if (this.y < GOLEM_HOVER_Y) {
-          this.y = Math.min(GOLEM_HOVER_Y, this.y + this.spec.speed * dt);
-        } else {
-          // 자리를 잡으면 좌우로 천천히 왕복
-          const range = WORLD.width / 2 - this.width / 2 - 10;
-          this.x = WORLD.width / 2 + Math.sin(this.age * 0.8) * range;
-        }
+        this.y = Math.min(GOLEM_HOVER_Y, this.y + this.spec.speed * dt);
+        // 등장 시간을 제외해야 중앙에서 시작하는 왕복 좌표로 끊김 없이 이어집니다.
+        const hoverAge = Math.max(0, this.age - (GOLEM_HOVER_Y + this.height / 2) / this.spec.speed);
+        const range = WORLD.width / 2 - this.width / 2 - 10;
+        this.x = WORLD.width / 2 + Math.sin(hoverAge * 0.8) * range;
         break;
       }
     }

@@ -3,10 +3,10 @@ import type { Player } from './Player';
 import { dampFactor } from './utils';
 
 /**
- * 동반자 펫. 첨부된 토끼 모양 PNG를 사용합니다.
+ * 선택한 동반자 펫의 이미지를 사용합니다.
  *
  * 1) 플레이어의 옆-뒤를 Lerp(지수 보간)로 부드럽게 따라다닙니다.
- * 2) 자체 타이머를 가지고 10초마다 3초 동안 플레이어에게 방어막을 겁니다.
+ * 2) 수동 스킬로 3초 방어막을 걸고 발동 시점부터 10초간 재사용을 막습니다.
  *    - 타이머는 게임 루프(update) 안에서만 흐르므로 일시정지 중에는 멈춥니다.
  *    - 방어막 상태는 Player.isShieldActive 에 반영됩니다.
  */
@@ -16,23 +16,23 @@ export class Pet {
   readonly size = PET.size;
 
   /** 다음 쉴드 발동까지 남은 시간(초) */
-  private cooldown: number = PET.shieldInterval;
+  private cooldown = 0;
   /** 현재 쉴드 유지 남은 시간(초). 0이면 꺼진 상태 */
   private shieldTimeLeft = 0;
   private time = 0;
   private readonly image: HTMLImageElement | null;
 
-  constructor(player: Player) {
+  constructor(player: Player, previewPath: string) {
     this.x = player.x + PET.offsetX;
     this.y = player.y + PET.offsetY;
     this.image = typeof Image === 'undefined' ? null : new Image();
-    if (this.image) this.image.src = '/assets/previews/pet.png';
+    if (this.image) this.image.src = previewPath;
   }
 
   reset(player: Player): void {
     this.x = player.x + PET.offsetX;
     this.y = player.y + PET.offsetY;
-    this.cooldown = PET.shieldInterval;
+    this.cooldown = 0;
     this.shieldTimeLeft = 0;
     this.time = 0;
     player.isShieldActive = false;
@@ -43,21 +43,24 @@ export class Pet {
     return this.shieldTimeLeft > 0;
   }
 
-  /** 0 → 1 : 다음 쉴드가 충전되는 진행도 (쉴드 작동 중에는 1) */
-  get chargeRatio(): number {
-    if (this.isShieldActive) return 1;
-    return 1 - this.cooldown / PET.shieldInterval;
+  get cooldownRemaining(): number {
+    return this.cooldown;
   }
 
-  /** 1 → 0 : 쉴드 유지 시간이 남은 비율 (꺼져 있으면 0) */
-  get shieldRatio(): number {
-    return this.shieldTimeLeft / PET.shieldDuration;
+  activateShield(player: Player): boolean {
+    if (this.cooldown > 0 || this.isShieldActive) return false;
+    this.cooldown = PET.shieldCooldown;
+    this.shieldTimeLeft = PET.shieldDuration;
+    player.isShieldActive = true;
+    player.shieldRemaining = this.shieldTimeLeft;
+    return true;
   }
 
   update(dt: number, player: Player): void {
     this.time += dt;
     this.follow(dt, player);
-    this.updateShieldTimer(dt);
+    this.shieldTimeLeft = Math.max(0, this.shieldTimeLeft - dt);
+    this.cooldown = Math.max(0, this.cooldown - dt);
 
     // 쉴드 상태를 플레이어 객체에 전달
     player.isShieldActive = this.isShieldActive;
@@ -72,20 +75,6 @@ export class Pet {
     const k = dampFactor(PET.followRate, dt);
     this.x += (targetX - this.x) * k;
     this.y += (targetY - this.y) * k;
-  }
-
-  /** 10초마다 3초간 켜지는 쉴드 타이머 */
-  private updateShieldTimer(dt: number): void {
-    if (this.shieldTimeLeft > 0) {
-      this.shieldTimeLeft = Math.max(0, this.shieldTimeLeft - dt);
-    }
-
-    this.cooldown -= dt;
-    if (this.cooldown <= 0) {
-      this.shieldTimeLeft = PET.shieldDuration;
-      // 주기를 흔들리지 않게 유지하기 위해 0으로 리셋하지 않고 더해줍니다.
-      this.cooldown += PET.shieldInterval;
-    }
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
