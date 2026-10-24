@@ -7,7 +7,6 @@ import { Input } from './Input';
 import { Pet } from './Pet';
 import { Player } from './Player';
 import { circleRectOverlap, circlesOverlap, rectsOverlap } from './utils';
-import type { Pet as OwnedPet } from '../pets/pets';
 
 export type GameState = 'ready' | 'playing' | 'paused' | 'gameover';
 
@@ -15,6 +14,7 @@ export type GameState = 'ready' | 'playing' | 'paused' | 'gameover';
 const FIXED_DT = 1 / 60;
 /** 탭 전환 등으로 프레임이 크게 밀렸을 때 따라잡기 상한(초) */
 const MAX_FRAME_TIME = 0.1;
+const SCORE_HISTORY_KEY = 'dorobus_scores';
 
 const FONT = "'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif";
 
@@ -62,7 +62,7 @@ export class Game {
   elapsed = 0;
 
   readonly player = new Player();
-  pet: Pet;
+  readonly pet = new Pet(this.player);
   enemies: Enemy[] = [];
   playerBullets: PlayerBullet[] = [];
   enemyBullets: EnemyBullet[] = [];
@@ -78,17 +78,12 @@ export class Game {
   private accumulator = 0;
   private shake = 0;
   private running = false;
-  private settingsOpen = false;
+  private scoreSaved = false;
 
-  constructor(
-    private readonly canvas: HTMLCanvasElement,
-    selectedPet: OwnedPet,
-    private readonly updateUi: () => void = () => {},
-  ) {
+  constructor(private readonly canvas: HTMLCanvasElement) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D 컨텍스트를 만들 수 없습니다.');
     this.ctx = ctx;
-    this.pet = new Pet(this.player, selectedPet.previewPath);
     this.best = this.loadBest();
     this.resize();
   }
@@ -107,6 +102,9 @@ export class Game {
   }
 
   stop(): void {
+    if (this.state === 'playing' || this.state === 'paused' || this.state === 'gameover') {
+      this.saveScoreHistory();
+    }
     this.running = false;
     cancelAnimationFrame(this.rafId);
     this.input.detach();
@@ -114,40 +112,29 @@ export class Game {
     document.removeEventListener('visibilitychange', this.onVisibilityChange);
   }
 
-  returnToMain(): void {
-    this.resetRun();
+  /**
+   * 일시정지 메뉴의 종료하기 동작.
+   * 이벤트를 먼저 발생시킨 뒤 루프를 정리하고 캔버스를 숨겨
+   * 마지막 일시정지 프레임이 화면에 멈춰 있는 것처럼 보이지 않게 합니다.
+   */
+  private quitToSelection(): void {
+    if (!this.running) return;
+
+    this.saveScoreHistory();
+    const detail = { reason: 'pause-menu', action: 'select-game' } as const;
     this.state = 'ready';
-    this.updateUi();
-  }
-
-  setSettingsOpen(open: boolean): void {
-    this.settingsOpen = open;
-    this.input.clear();
-  }
-
-  selectPet(selectedPet: OwnedPet): void {
-    if (this.state !== 'ready') return;
-    this.pet = new Pet(this.player, selectedPet.previewPath);
-  }
-
-  activatePetSkill(): boolean {
-    if (this.state !== 'playing' || this.settingsOpen || !this.pet.activateShield(this.player)) return false;
-    this.effects.ring(this.player.x, this.player.y, COLORS.shieldEdge, PLAYER.shieldRadius + 14, 0.4);
-    this.updateUi();
-    return true;
+    this.canvas.dispatchEvent(new CustomEvent('game-quit', {
+      detail,
+      bubbles: true,
+      composed: true,
+    }));
+    this.canvas.style.display = 'none';
+    this.stop();
   }
 
   /** 새 판을 시작합니다. */
   startRun(): void {
-    if (this.settingsOpen) return;
-    this.resetRun();
-    this.state = 'playing';
-    this.updateUi();
-  }
-
-  private resetRun(): void {
-    this.input.clear();
-    this.accumulator = 0;
+    this.scoreSaved = false;
     this.score = 0;
     this.elapsed = 0;
     this.shake = 0;
@@ -158,6 +145,7 @@ export class Game {
     this.spawner.reset();
     this.player.reset();
     this.pet.reset(this.player);
+    this.state = 'playing';
   }
 
   // ───────────────────────── 메인 루프 ─────────────────────────
@@ -182,7 +170,6 @@ export class Game {
 
   /** 시작/일시정지/재시작 같은 "한 번 누르는" 입력 처리 */
   private handleStateInput(): void {
-    if (this.settingsOpen) return;
     const confirm = this.input.wasPressed('Enter', 'Space');
     const pause = this.input.wasPressed('KeyP', 'Escape');
 
@@ -193,7 +180,6 @@ export class Game {
         break;
       case 'playing':
         if (pause) this.state = 'paused';
-        else if (this.input.wasPressed('KeyE')) this.activatePetSkill();
         break;
       case 'paused':
         if (pause || confirm) this.state = 'playing';
@@ -221,7 +207,7 @@ export class Game {
       return;
     }
     if (inside(PAUSE_BUTTONS.quit)) {
-      this.returnToMain();
+      this.quitToSelection();
     }
   };
 
@@ -239,8 +225,12 @@ export class Game {
     // 플레이어(이동 + 자동 발사)
     this.player.update(dt, this.input, (b) => this.playerBullets.push(b));
 
-    // 수동 발동한 방어막의 시간과 추적만 갱신합니다.
+    // 펫(추적 + 쉴드 타이머). 쉴드가 새로 켜지는 순간에 효과를 줍니다.
+    const wasShielded = this.pet.isShieldActive;
     this.pet.update(dt, this.player);
+    if (!wasShielded && this.pet.isShieldActive) {
+      this.effects.ring(this.player.x, this.player.y, COLORS.shieldEdge, PLAYER.shieldRadius + 14, 0.4);
+    }
 
     // 적 생성 및 이동/발사
     this.enemies.push(...this.spawner.update(dt, this.elapsed, this.enemies));
@@ -334,12 +324,34 @@ export class Game {
   }
 
   private endRun(): void {
+    this.saveScoreHistory();
     this.state = 'gameover';
     this.effects.burst(this.player.x, this.player.y, COLORS.player, 50, 320, 6);
     this.shake = 0.5;
     if (this.score > this.best) {
       this.best = this.score;
       this.saveBest();
+    }
+  }
+
+  /** 한 판의 최종 점수를 로컬 리더보드에 한 번만 추가합니다. */
+  private saveScoreHistory(): void {
+    if (this.scoreSaved) return;
+    this.scoreSaved = true;
+
+    try {
+      const raw = localStorage.getItem(SCORE_HISTORY_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      const scores: number[] = Array.isArray(parsed)
+        ? parsed.filter((value): value is number => (
+          typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ))
+        : [];
+
+      scores.push(this.score);
+      localStorage.setItem(SCORE_HISTORY_KEY, JSON.stringify(scores.slice(-50)));
+    } catch {
+      // 저장소가 차단된 환경에서도 게임 종료 자체는 정상 동작합니다.
     }
   }
 
@@ -350,7 +362,7 @@ export class Game {
    * 고해상도(Retina) 화면에서도 선명하도록 devicePixelRatio 를 반영합니다.
    */
   private readonly resize = (): void => {
-    const cssScale = Math.min(window.innerWidth / WORLD.width, Math.max(1, window.innerHeight - 56) / WORLD.height);
+    const cssScale = Math.min(window.innerWidth / WORLD.width, window.innerHeight / WORLD.height);
     const ratio = cssScale * (window.devicePixelRatio || 1);
     this.canvas.style.width = `${Math.floor(WORLD.width * cssScale)}px`;
     this.canvas.style.height = `${Math.floor(WORLD.height * cssScale)}px`;
@@ -383,7 +395,6 @@ export class Game {
 
     if (this.state !== 'ready') this.drawHud();
     this.drawOverlay();
-    this.updateUi();
   }
 
   private drawHud(): void {
@@ -405,6 +416,18 @@ export class Game {
       ctx.fillRect(12 + i * 22, 40, 16, 16);
     }
 
+    // 펫 쉴드 게이지
+    const barX = 12;
+    const barY = WORLD.height - 24;
+    const barW = 170;
+    const active = this.pet.isShieldActive;
+    ctx.font = `13px ${FONT}`;
+    ctx.fillStyle = active ? COLORS.shieldEdge : COLORS.textDim;
+    ctx.fillText(active ? '펫 방어막 작동 중!' : '펫 방어막 충전', barX, barY - 18);
+    ctx.fillStyle = 'rgba(255,255,255,0.15)';
+    ctx.fillRect(barX, barY, barW, 10);
+    ctx.fillStyle = active ? '#60a5fa' : COLORS.pet;
+    ctx.fillRect(barX, barY, barW * (active ? this.pet.shieldRatio : this.pet.chargeRatio), 10);
   }
 
   private drawOverlay(): void {
@@ -430,11 +453,11 @@ export class Game {
       line('펫과 함께 하늘을 날아보세요', 300, 16, COLORS.text);
       line('방향키  이동    Shift  천천히 이동', 400, 15, COLORS.textDim);
       line('총알은 자동 발사', 428, 15, COLORS.textDim);
-      line('E  펫 스킬    P / Esc  일시정지', 456, 15, COLORS.textDim);
+      line('Enter 또는 Space 로 시작', 540, 20, COLORS.text, true);
     } else if (this.state === 'paused') {
       line('일시정지', 300, 40, COLORS.text, true);
       this.drawPauseButton(PAUSE_BUTTONS.continue, '계속하기', '#dbeafe', '#2563eb');
-      this.drawPauseButton(PAUSE_BUTTONS.quit, '메인으로', '#ffe4e6', '#e11d48');
+      this.drawPauseButton(PAUSE_BUTTONS.quit, '종료하기', '#ffe4e6', '#e11d48');
       line('버튼을 클릭하거나 P / Esc 로 계속하기', 525, 14, COLORS.textDim);
     } else if (this.state === 'gameover') {
       line('정화 실패...', 270, 42, '#fca5a5', true);
