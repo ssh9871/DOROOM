@@ -1,88 +1,55 @@
-import { PET } from './config';
+import { PET, WORLD } from './config';
 import type { Player } from './Player';
-import { dampFactor } from './utils';
+import { skillCooldown, type SkillId } from './progress';
+import { drawSprite } from './sprites';
+import { clamp, dampFactor } from './utils';
 
-/**
- * 선택한 동반자 펫의 이미지를 사용합니다.
- *
- * 1) 플레이어의 옆-뒤를 Lerp(지수 보간)로 부드럽게 따라다닙니다.
- * 2) 수동 스킬로 3초 방어막을 걸고 발동 시점부터 10초간 재사용을 막습니다.
- *    - 타이머는 게임 루프(update) 안에서만 흐르므로 일시정지 중에는 멈춥니다.
- *    - 방어막 상태는 Player.isShieldActive 에 반영됩니다.
- */
 export class Pet {
-  x: number;
-  y: number;
-  readonly size = PET.size;
-
-  /** 다음 쉴드 발동까지 남은 시간(초) */
-  private cooldown = 0;
-  /** 현재 쉴드 유지 남은 시간(초). 0이면 꺼진 상태 */
-  private shieldTimeLeft = 0;
+  x = 0;
+  y = 0;
+  cooldownRemaining = 0;
+  effectRemaining = 0;
+  private castRemaining = 0;
   private time = 0;
-  private readonly image: HTMLImageElement | null;
+  skill: SkillId = 'shield';
 
-  constructor(player: Player, previewPath: string) {
+  reset(player: Player, skill: SkillId): void {
     this.x = player.x + PET.offsetX;
     this.y = player.y + PET.offsetY;
-    this.image = typeof Image === 'undefined' ? null : new Image();
-    if (this.image) this.image.src = previewPath;
+    this.cooldownRemaining = this.effectRemaining = this.castRemaining = this.time = 0;
+    this.skill = skill;
   }
 
-  reset(player: Player): void {
-    this.x = player.x + PET.offsetX;
-    this.y = player.y + PET.offsetY;
-    this.cooldown = 0;
-    this.shieldTimeLeft = 0;
-    this.time = 0;
-    player.isShieldActive = false;
-    player.shieldRemaining = 0;
-  }
-
-  get isShieldActive(): boolean {
-    return this.shieldTimeLeft > 0;
-  }
-
-  get cooldownRemaining(): number {
-    return this.cooldown;
-  }
-
-  activateShield(player: Player): boolean {
-    if (this.cooldown > 0 || this.isShieldActive) return false;
-    this.cooldown = PET.shieldCooldown;
-    this.shieldTimeLeft = PET.shieldDuration;
-    player.isShieldActive = true;
-    player.shieldRemaining = this.shieldTimeLeft;
+  activate(player: Player, clear: () => void): boolean {
+    if (this.cooldownRemaining > 0) return false;
+    if (this.skill === 'heal' && !player.heal()) return false;
+    if (this.skill === 'clear') clear();
+    this.cooldownRemaining = skillCooldown;
+    this.effectRemaining = this.skill === 'shield' ? 3 : this.skill === 'rapid-fire' ? 5 : 0;
+    this.castRemaining = 0.45;
+    this.apply(player);
     return true;
+  }
+
+  private apply(player: Player): void {
+    player.isShieldActive = this.skill === 'shield' && this.effectRemaining > 0;
+    player.fireRate = this.skill === 'rapid-fire' && this.effectRemaining > 0 ? 1.3 : 1;
   }
 
   update(dt: number, player: Player): void {
     this.time += dt;
-    this.follow(dt, player);
-    this.shieldTimeLeft = Math.max(0, this.shieldTimeLeft - dt);
-    this.cooldown = Math.max(0, this.cooldown - dt);
-
-    // 쉴드 상태를 플레이어 객체에 전달
-    player.isShieldActive = this.isShieldActive;
-    player.shieldRemaining = this.shieldTimeLeft;
-  }
-
-  /** 플레이어의 옆-뒤 위치를 목표로 부드럽게 접근 (프레임레이트 독립 Lerp) */
-  private follow(dt: number, player: Player): void {
-    const bob = Math.sin(this.time * 3) * 3; // 둥실둥실 떠 있는 느낌
-    const targetX = player.x + PET.offsetX;
-    const targetY = player.y + PET.offsetY + bob;
+    const bob = Math.sin(this.time * 3) * 3;
     const k = dampFactor(PET.followRate, dt);
-    this.x += (targetX - this.x) * k;
-    this.y += (targetY - this.y) * k;
+    this.x += (clamp(player.x + PET.offsetX, 18, WORLD.width - 18) - this.x) * k;
+    this.y += (clamp(player.y + PET.offsetY + bob, 20, WORLD.height - 16) - this.y) * k;
+    this.cooldownRemaining = Math.max(0, this.cooldownRemaining - dt);
+    this.effectRemaining = Math.max(0, this.effectRemaining - dt);
+    this.castRemaining = Math.max(0, this.castRemaining - dt);
+    this.apply(player);
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
-    const half = this.size / 2;
-
-    // 기존 사각형/귀/눈 도형 대신 펫 PNG만 표시합니다.
-    if (this.image?.complete && this.image.naturalWidth > 0) {
-      ctx.drawImage(this.image, this.x - half, this.y - half, this.size, this.size);
-    }
+    drawSprite(ctx, 'pets/hover-platform', this.x, this.y + 11);
+    drawSprite(ctx, 'pets/pet-cat-001', this.x, this.y, { tag: this.castRemaining > 0 ? 'cast' : 'idle', time: this.time });
   }
 }

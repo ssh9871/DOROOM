@@ -1,0 +1,42 @@
+{ "frames": [
+   {
+    "filename": "enemy-relay-0.aseprite",
+    "frame": { "x": 0, "y": 0, "w": 28, "h": 28 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 28, "h": 28 },
+    "sourceSize": { "w": 28, "h": 28 },
+    "duration": 100
+   },
+   {
+    "filename": "enemy-relay-1.aseprite",
+    "frame": { "x": 28, "y": 0, "w": 28, "h": 28 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 28, "h": 28 },
+    "sourceSize": { "w": 28, "h": 28 },
+    "duration": 100
+   },
+   {
+    "filename": "enemy-relay-2.aseprite",
+    "frame": { "x": 56, "y": 0, "w": 28, "h": 28 },
+    "rotated": false,
+    "trimmed": false,
+    "spriteSourceSize": { "x": 0, "y": 0, "w": 28, "h": 28 },
+    "sourceSize": { "w": 28, "h": 28 },
+    "duration": 100
+   }
+ ],
+ "meta": {
+  "app": "https://www.aseprite.org/",
+  "version": "1.3.18.6-dev",
+  "image": "enemy-relay.png",
+  "format": "RGBA8888",
+  "size": { "w": 84, "h": 28 },
+  "scale": "1",
+  "frameTags": [
+   { "name": "move", "from": 0, "to": 1, "direction": "forward", "color": "#000000ff" },
+   { "name": "attack", "from": 2, "to": 2, "direction": "forward", "color": "#000000ff" }
+  ]
+ }
+}

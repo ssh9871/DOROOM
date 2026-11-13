@@ -1,6 +1,8 @@
 import data from './pets.json' with { type: 'json' };
 import catalog from './shop-items.json' with { type: 'json' };
 import users from '../users/users.json' with { type: 'json' };
+import { baseLevels, scoreRun, upgradeIds, upgrades, weekStart, weeklyRanking, type RankedRun, type RunResult, type UpgradeId } from '../game/progress.ts';
+import { stages } from '../game/stages.ts';
 
 export const pet = data.pets[0]!;
 export type Pet = typeof pet;
@@ -10,6 +12,7 @@ const defaultUser = users.users[0]!;
 export type User = Omit<typeof defaultUser, 'items'> & { items: Record<string, number> };
 const storageKey = 'doroom.pet-progress';
 const legacyKey = 'doroom.equipped-pet';
+const saveVersion = 4;
 const maxLevel = Math.floor(Number.MAX_SAFE_INTEGER / Math.max(growth.experiencePerLevel, growth.cellCostPerLevel));
 const record = (value: unknown): Record<string, unknown> => value !== null && typeof value === 'object' && !Array.isArray(value) ? value as Record<string, unknown> : {};
 const integer = (value: unknown, max = Number.MAX_SAFE_INTEGER): value is number => Number.isSafeInteger(value) && Number(value) >= 0 && Number(value) <= max;
@@ -20,6 +23,14 @@ export function createPetState(storage: () => Pick<Storage, 'getItem' | 'setItem
   let equippedId: string | null = null;
   let persistent = true;
   let recovered = false;
+  let minigame = {
+    levels: { ...baseLevels },
+    cleared: {} as Record<string, boolean>,
+    best: {} as Record<string, number>,
+    ranked: [] as RankedRun[],
+    applied: [] as string[],
+    petId: pet.id,
+  };
   const restoreNumber = (value: unknown, fallback: number, max?: number) => {
     if (value === undefined) return fallback;
     if (integer(value, max)) return value;
@@ -30,18 +41,19 @@ export function createPetState(storage: () => Pick<Storage, 'getItem' | 'setItem
     // shortcut: browser-local demo data; use server transactions when accounts or real currency are added.
     try {
       storage().setItem(storageKey, JSON.stringify({
-        version: 2, user, equippedId,
+        version: saveVersion, user, equippedId, minigame,
         pets: { [pet.id]: { level: currentPet.level, experience: currentPet.experience, hunger: currentPet.hunger, affection: currentPet.affection } },
       }));
       persistent = true;
     } catch { persistent = false; }
+    return persistent;
   };
   try {
     const raw = storage().getItem(storageKey);
     if (raw !== null) {
       try {
         const snapshot = record(JSON.parse(raw));
-        if (snapshot.version !== 1 && snapshot.version !== 2) throw new Error('Unsupported save');
+        if (!integer(snapshot.version, saveVersion) || snapshot.version === 0) throw new Error('Unsupported save');
         const savedUser = record(snapshot.user);
         if (savedUser.id !== user.id) throw new Error('Unknown user');
         if (typeof savedUser.nickname === 'string' && savedUser.nickname.trim().length > 0 && savedUser.nickname.length <= 40) user.nickname = savedUser.nickname;
@@ -60,11 +72,33 @@ export function createPetState(storage: () => Pick<Storage, 'getItem' | 'setItem
         currentPet.affection = restoreNumber(progress.affection, pet.affection, 100);
         equippedId = snapshot.equippedId === pet.id ? pet.id : null;
         if (snapshot.equippedId !== undefined && snapshot.equippedId !== null && equippedId === null) recovered = true;
+        const game = record(snapshot.minigame);
+        const levels = record(game.levels);
+        for (const id of upgradeIds) minigame.levels[id] = restoreNumber(levels[id], 0, upgrades[id].costs.length);
+        const cleared = record(game.cleared);
+        const best = record(game.best);
+        for (const stage of stages) {
+          if (cleared[stage.id] === true) minigame.cleared[stage.id] = true;
+          minigame.best[stage.id] = restoreNumber(best[stage.id], 0);
+        }
+        minigame.best.endless = restoreNumber(best.endless, 0);
+        if (Array.isArray(game.applied)) minigame.applied = [...new Set(game.applied.filter((id): id is string => typeof id === 'string' && id.length <= 64))];
+        if (Array.isArray(game.ranked)) for (const value of game.ranked) {
+          const { id, score, completedAt } = record(value);
+          if (typeof id === 'string' && id.length <= 64 && integer(score) && integer(completedAt, 8.64e15)) {
+            minigame.ranked.push({ id, score: score as number, completedAt: completedAt as number });
+          }
+        }
         if (snapshot.version === 1) {
-          // Apply the requested manual-test baseline once without resetting purchases or equipment.
-          currentPet.experience = pet.experience;
           currentPet.hunger = pet.hunger;
           currentPet.affection = pet.affection;
+        }
+        if (snapshot.version < saveVersion) {
+          user.cells = defaultUser.cells;
+          currentPet.level = pet.level;
+          currentPet.experience = pet.experience;
+          minigame.levels = { ...baseLevels };
+          minigame.cleared = {};
           save();
         }
       } catch { recovered = true; }
@@ -74,12 +108,64 @@ export function createPetState(storage: () => Pick<Storage, 'getItem' | 'setItem
       if (legacy !== null) save();
     }
   } catch { persistent = false; }
+  const commitGame = (next: typeof minigame, cells: number, experience = currentPet.experience) => {
+    if (!integer(cells)) return false;
+    const previous = minigame;
+    const balance = user.cells;
+    const previousExperience = currentPet.experience;
+    minigame = next;
+    user.cells = cells;
+    currentPet.experience = experience;
+    if (save()) return true;
+    minigame = previous;
+    user.cells = balance;
+    currentPet.experience = previousExperience;
+    return false;
+  };
   return {
     get pet() { return { ...currentPet }; },
     get user(): User { return { ...user, items: { ...user.items } }; },
     get equipped() { return equippedId === pet.id; },
     get persistent() { return persistent; },
     get recovered() { return recovered; },
+    get minigame() {
+      return { levels: { ...minigame.levels }, cleared: { ...minigame.cleared },
+        best: { ...minigame.best }, petId: minigame.petId };
+    },
+    get ownedPets() { return [{ ...currentPet }]; },
+    weeklyRanking(at?: number) { return weeklyRanking(minigame.ranked, user, at); },
+    equipRunPet(id: string) {
+      return id === pet.id && commitGame({ ...minigame, petId: id }, user.cells);
+    },
+    buyUpgrade(id: UpgradeId) {
+      const cost = upgrades[id].costs[minigame.levels[id]];
+      if (cost === undefined) return '최대 단계에 도달했어요.';
+      if (user.cells < cost) return '셀이 부족해요.';
+      const levels = { ...minigame.levels, [id]: minigame.levels[id] + 1 };
+      return commitGame({ ...minigame, levels }, user.cells - cost) ? '강화했어요.' : '강화를 저장하지 못했어요.';
+    },
+    recordRun(run: RunResult) {
+      const stage = stages[run.stage];
+      if (!stage || run.outcome === 'abort' || run.bossPractice || minigame.applied.includes(run.id)) return true;
+      const result = scoreRun(run, stage.reward);
+      const key = run.mode === 'endless' ? 'endless' : stage.id;
+      const best = { ...minigame.best, [key]: Math.max(minigame.best[key] ?? 0, result.score) };
+      const cleared = { ...minigame.cleared };
+      let ranked = minigame.ranked;
+      if (run.outcome === 'clear' && run.mode === 'stage') cleared[stage.id] = true;
+      if (run.outcome === 'return' && run.mode === 'endless') {
+        const start = weekStart(run.completedAt);
+        const candidate = { id: run.id, score: result.score, completedAt: run.completedAt };
+        const currentWeek = ranked.find(record => weekStart(record.completedAt) === start);
+        if (!currentWeek || candidate.score > currentWeek.score ||
+          candidate.score === currentWeek.score && candidate.completedAt < currentWeek.completedAt) {
+          ranked = [...ranked.filter(record => weekStart(record.completedAt) !== start), candidate];
+        }
+      }
+      return commitGame({ ...minigame, best, cleared, ranked, applied: [...minigame.applied, run.id] },
+        user.cells + result.scoreCells + result.clearCells,
+        Math.min(this.requiredExperience, currentPet.experience + run.purified));
+    },
     get requiredExperience() { return currentPet.level * growth.experiencePerLevel; },
     get growthCost() { return currentPet.level * growth.cellCostPerLevel; },
     get canGrow() { return currentPet.level < maxLevel && currentPet.experience >= this.requiredExperience && user.cells >= this.growthCost; },

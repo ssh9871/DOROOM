@@ -2,6 +2,7 @@ import { connectPetShop } from '../ui/petShop';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
 import { openGame } from '../ui/gameScreen';
+import { formatWeek } from '../ui/weeklyRanking';
 
 export function startApp() {
   const root = document.querySelector<HTMLDivElement>('#app');
@@ -28,46 +29,31 @@ export function startApp() {
       const leaderboardConfirmBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-confirm-btn');
       const leaderboardList = root!.querySelector<HTMLOListElement>('#leaderboard-list');
       const leaderboardBestScore = root!.querySelector<HTMLElement>('#leaderboard-best-score');
-      const scoreHistoryKey = 'dorobus_scores';
-
-      const loadScores = (): number[] => {
-        try {
-          const raw = localStorage.getItem(scoreHistoryKey);
-          const parsed: unknown = raw ? JSON.parse(raw) : [];
-          return Array.isArray(parsed)
-            ? parsed
-              .filter((value): value is number => (
-                typeof value === 'number' && Number.isFinite(value) && value >= 0
-              ))
-              .sort((a, b) => b - a)
-            : [];
-        } catch {
-          return [];
-        }
-      };
+      const leaderboardWeek = root!.querySelector<HTMLElement>('#leaderboard-week');
 
       const renderLeaderboard = (): void => {
         if (!leaderboardList || !leaderboardBestScore) return;
-        const scores = loadScores().slice(0, 5);
-        leaderboardBestScore.textContent = scores.length > 0
-          ? `${scores[0].toLocaleString()}점`
+        const { start, end, rows } = petState.weeklyRanking();
+        if (leaderboardWeek) leaderboardWeek.textContent = `이 브라우저의 기록 · ${formatWeek(start, end)}`;
+        leaderboardBestScore.textContent = rows.length > 0
+          ? `${rows[0]!.score.toLocaleString()}점`
           : '기록 없음';
         leaderboardList.replaceChildren();
 
-        if (scores.length === 0) {
+        if (rows.length === 0) {
           const empty = document.createElement('li');
           empty.className = 'leaderboard-empty';
-          empty.textContent = '아직 플레이 기록이 없습니다.';
+          empty.textContent = '이번 주 플레이 기록이 없어요.';
           leaderboardList.appendChild(empty);
           return;
         }
 
-        scores.forEach((score, index) => {
+        rows.forEach(({ score, nickname }, index) => {
           const item = document.createElement('li');
           item.className = 'leaderboard-item';
           const rank = document.createElement('span');
           rank.className = 'leaderboard-rank';
-          rank.textContent = `${index + 1}위`;
+          rank.textContent = `${index + 1}위 · ${nickname}`;
           const value = document.createElement('strong');
           value.className = 'leaderboard-score';
           value.textContent = `${score.toLocaleString()}점`;
@@ -104,6 +90,12 @@ export function startApp() {
         const closeGame = () => {
           disposeGame?.();
           disposeGame = undefined;
+          const wallet = root!.querySelector('.wallet');
+          if (wallet) {
+            const cells = petState.user.cells.toLocaleString();
+            wallet.innerHTML = `<span aria-hidden="true">⬡</span> ${cells}`;
+            wallet.setAttribute('aria-label', `보유 ${cells} 셀`);
+          }
           playBtn.focus();
         };
 

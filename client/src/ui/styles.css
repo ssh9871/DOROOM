@@ -771,76 +771,9 @@ h2 {
   border-radius:13px;
   overflow:hidden;
   position:relative;
-  background:radial-gradient(ellipse at 35% 30%,#364f95 0%,#172854 45%,#10172e 100%)
+  background:linear-gradient(transparent 38%, #091421e8), url('/assets/minigame/scenes/main-hangar.png') center / cover;
+  image-rendering:pixelated;
 }
-
-.bullet-thumbnail:before {
-  content:'';
-  position:absolute;
-  inset:0;
-  background-image:radial-gradient(circle,#d3f4ff 1px,transparent 1.5px),radial-gradient(circle,#91b5fb 1px,transparent 1.5px);
-  background-size:38px 43px,71px 67px;
-  background-position:8px 4px,17px 19px;
-  opacity:.55
-}
-
-.new-badge {
-  position:absolute;
-  right:10px;
-  top:10px;
-  font-size:10px;
-  font-weight:800;
-  background:#176dd0;
-  border:1px solid #599be8;
-  color:#e6f8ff;
-  padding:5px 9px;
-  border-radius:20px;
-  z-index:3
-}
-
-.planet {
-  position:absolute;
-  width:130px;
-  height:130px;
-  border-radius:50%;
-  right:-30px;
-  top:-45px;
-  background:linear-gradient(140deg,#708bc4,#3e5390 50%,#293457);
-  box-shadow:-9px 4px 30px #657dbd40
-}
-
-.space-orbit {
-  position:absolute;
-  width:220px;
-  height:70px;
-  border:1px solid #8abaf84a;
-  border-radius:50%;
-  transform:rotate(-25deg);
-  right:-50px;
-  top:9px
-}
-
-.spaceship {
-  position:absolute;
-  width:79px;
-  height:107px;
-  right:28px;
-  bottom:3px;
-  transform:rotate(20deg);
-  filter:drop-shadow(0 0 10px #74baff80)
-}
-
-.bullet-field {
-  position:absolute;
-  width:9px;
-  height:9px;
-  border-radius:50%;
-  background:#ffb1df;
-  top:28px;
-  left:90px;
-  box-shadow:18px 22px #f6b1e0,33px 48px #fcabdd,42px 80px #edc1f1,42px 113px #d8b8ff,15px 94px #ea9fd9,-19px 88px #ebc2fe,-44px 63px #f6b5ee,-56px 33px #e2bdff,-54px 2px #f1c3e9,80px 41px #a5e9ff,103px 23px #83d0ff,116px 3px #9bdcff
-}
-
 .thumbnail-caption {
   position:absolute;
   left:18px;
@@ -891,21 +824,7 @@ h2 {
   margin-top:13px
 }
 
-.game-record {
-  display:flex;
-  justify-content:space-between;
-  align-items:center;
-  color:#a8becf;
-  font-size:11px;
-  font-weight:700;
-  margin:14px 0
-}
 
-.game-record span:last-child {
-  color:#5e9cd4;
-  font-size:17px;
-  letter-spacing:2px
-}
 
 .play-button {
   display:block;
@@ -1775,30 +1694,97 @@ body.leaderboard-open { overflow: hidden; }
 
 /* 게임 컨트롤은 캔버스의 표시 영역을 기준으로 배치합니다. */
 .in-game { overflow:hidden }
-.game-overlay { position:fixed; inset:0; z-index:9999; display:flex; flex-direction:column; align-items:center; background:#1a1a2e; color:#12345b }
-.game-header { flex:0 0 56px; width:100%; display:flex; align-items:center }
-.game-header button { background:transparent; border:0; color:white; padding:12px 20px; font-weight:700; cursor:pointer }
-.game-stage { position:relative; flex:none; max-width:100% }
-.game-stage canvas { display:block; border-radius:12px; box-shadow:0 0 30px #0008 }
-.game-main-actions { position:absolute; left:12%; right:12%; bottom:7%; display:flex; flex-direction:column; gap:10px }
-.game-main-actions[hidden], .game-skill[hidden] { display:none }
-.game-main-actions button, .game-skill { border:2px solid #2462a5; border-radius:12px; background:#e7f6ff; color:#12345b; padding:12px; font:inherit; font-weight:700; cursor:pointer }
-.game-main-actions .game-start { background:#1056b9; color:white }
-.game-skill { position:absolute; right:12px; bottom:12px; min-width:116px; padding:9px 12px; background:#1056b9; color:white; border:3px solid #a6d5ff }
-.game-skill small { display:block; font-size:12px; margin-top:4px }
-.game-skill:disabled { filter:brightness(.72); cursor:default }
-.game-skill.active { border-color:#39ee79 }
-.game-overlay button:focus-visible { outline:3px solid #f5a623; outline-offset:3px }
-.game-pet-dialog { width:min(480px,calc(100% - 24px)); max-height:calc(100dvh - 24px); padding:0; overflow:auto }
-.game-pet-content { display:flex; align-items:center; gap:24px; padding:24px }
-.game-pet-choice { display:flex; flex-direction:column; align-items:center; gap:8px; min-width:120px; padding:16px; border:2px solid #75b9f9; border-radius:16px; background:#18384e; color:#fff; cursor:pointer }
-.game-pet-choice img { width:96px; height:96px; object-fit:contain }
-.game-pet-choice span { font-size:12px; color:#a6e5bb }
-.game-pet-content dl { display:grid; grid-template-columns:auto auto; gap:12px 16px; margin:0; font-size:14px }
-.game-pet-content dd { margin:0; text-align:right }
+
 @media (max-width:420px), (max-height:540px) {
   .game-main-actions { gap:6px; bottom:5% }
   .game-main-actions button { padding:8px }
   .game-skill { right:8px; bottom:8px; min-width:100px; font-size:12px; padding:6px }
   .game-pet-content { flex-wrap:wrap; justify-content:center; gap:16px; padding:16px }
 }
+
+.game-overlay {
+  position: fixed; inset: 0; z-index: 9999; display: grid; place-items: center;
+  background: #081322; color: #f6fbff; overflow: hidden;
+  font-family: system-ui, "Malgun Gothic", sans-serif;
+}
+.game-overlay [hidden] { display: none !important; }
+.mg-frame {
+  position: absolute; inset: 50% auto auto 50%; width: 1280px; height: 720px;
+  transform: translate(-50%, -50%) scale(var(--mg-scale, 1));
+  overflow: hidden; background: #11243a;
+}
+.mg-frame img, .mg-frame canvas, .mg-menu, .mg-map, .mg-cat { image-rendering: pixelated; }
+.mg-frame button {
+  border: 1px solid #7aadc7; border-radius: 8px; padding: 10px 18px; background: #163550;
+  color: #fff; font-family: inherit; font-size: 18px; font-weight: 700; line-height: 1.35;
+  cursor: pointer; min-height: 44px;
+}
+.mg-frame button:hover, .mg-frame button[aria-pressed="true"] { background: #24546b; border-color: #8cf4d0; }
+.mg-frame button:disabled { opacity: .55; cursor: default; }
+.mg-frame button:focus-visible, .mg-frame canvas:focus-visible { outline: 3px solid #ffdd79; outline-offset: 4px; }
+.mg-frame img { width: 32px; height: 32px; object-fit: contain; vertical-align: middle; margin-right: 6px; }
+.mg-menu { position: absolute; inset: 0; display: grid; place-items: center; background-size: cover; background-position: center; }
+.mg-menu h1 { font-size: 38px; margin: 0 0 18px; line-height: 1.2; }
+.mg-menu h2 { margin: 0 0 10px; }
+.mg-menu p { margin: 0 0 12px; line-height: 1.55; font-size: 19px; }
+.mg-frame .mg-debug, .mg-exit { position: absolute; top: 24px; }
+.mg-frame .mg-debug { left: 24px; padding-inline: 12px; font-size: 15px; }
+.mg-exit { right: 24px; }
+.mg-main-panel, .mg-panel, .mg-map-panel {
+  padding: 28px 34px; border: 2px solid #648da2; border-radius: 16px;
+  background: #10263aee; box-shadow: 0 12px 35px #050b14a8;
+}
+.mg-main-panel { width: 590px; text-align: center; align-self: end; margin-bottom: 62px; }
+.mg-main-actions, .mg-choices, .mg-columns { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.mg-choices { margin-block: 16px 24px; }
+.mg-choices button { width: 100%; margin-bottom: 10px; }
+.mg-panel { width: min(760px, 90%); max-height: 660px; overflow: auto; }
+.mg-columns { gap: 24px; margin-block: 18px; }
+.mg-upgrade-list, .mg-pet-list { display: grid; gap: 10px; align-content: start; max-height: 380px; overflow: auto; padding: 4px; }
+.mg-upgrade-list button, .mg-pet-list button { text-align: left; }
+.mg-pet-actions { display: flex; flex-wrap: wrap; gap: 12px; }
+.mg-frame .mg-pet-actions button { display: inline-flex; align-items: center; gap: 6px; height: 48px; padding-block: 0; }
+.mg-pet-actions button img { margin: 0; }
+.mg-upgrade-list small { display: block; padding-left: 42px; color: #c4dbea; }
+.mg-cat { display: inline-block; width: 48px; height: 48px; vertical-align: middle; margin-right: 8px;
+  background: url('/assets/minigame/pets/pet-cat-001.png') left top / 240px 48px no-repeat; }
+.mg-map-panel { padding: 9px 24px; }
+.mg-map-panel h1 { margin-bottom: 8px; font-size: 30px; }
+.mg-tabs { display: flex; gap: 8px; margin-bottom: 8px; }
+.mg-map { width: 960px; height: 540px; position: relative; background-size: 100%; margin-bottom: 8px; }
+.mg-map .mg-point {
+  position: absolute; left: var(--x); top: var(--y); transform: translate(-50%, -50%);
+  min-width: 160px; background: #10263aed; padding: 8px; white-space: nowrap;
+}
+.mg-point small { display: block; color: #d0e3ef; }
+.mg-battle { display: grid; grid-template-columns: 400px 480px 400px; height: 100%; background: #11243a; }
+.mg-hud { padding: 82px 38px; background: linear-gradient(#173750, #0f1c2d); font-size: 23px; }
+.mg-hud h2 { font-size: 30px; line-height: 1.25; }
+.mg-hud strong { color: #aaf3cc; }
+.mg-boss-skip { margin-top: 18px; }
+.mg-hud .mg-mode, .mg-keys { color: #c4dbea; }
+.mg-keys { line-height: 1.8; font-size: 18px; }
+.mg-playfield { position: relative; }
+.mg-playfield canvas { display: block; width: 480px; height: 720px; }
+.mg-boss, .mg-warning {
+  position: absolute; left: 14px; right: 14px; text-align: center; padding: 8px;
+  background: #091a2ce8; border-radius: 8px; pointer-events: none;
+}
+.mg-boss { top: 12px; display: grid; gap: 4px; }
+.mg-boss progress { width: 100%; height: 14px; accent-color: #ff8c8c; }
+.mg-warning { top: 68px; color: #ffdf83; font-weight: 700; margin: 0; }
+.mg-pause { position: absolute; inset: 0; display: grid; justify-content: center; align-content: center; gap: 12px; background: #091627cb; text-align: center; }
+.mg-dialogue-over-battle { background: #08152245; }
+.mg-dialogue {
+  align-self: end; display: grid; grid-template-columns: 128px 1fr; gap: 22px; width: 940px;
+  margin-bottom: 35px; min-height: 155px; padding: 22px; background: #101f35f5;
+  border: 2px solid #7aadc7; border-radius: 14px; box-shadow: 0 10px 25px #050b14a8;
+}
+.mg-dialogue .mg-portrait, .mg-frame .mg-tutorial-portrait { width: 128px; height: 128px; }
+.mg-tutorial-portrait { float: right; }
+.mg-actions { display: flex; flex-wrap: wrap; gap: 10px; }
+.mg-tally { display: grid; grid-template-columns: 1fr 1fr; gap: 8px 20px; margin: 18px 0; }
+.mg-tally dd { margin: 0; font-weight: 700; }
+.mg-unlock { color: #adf6c9; }
+.mg-ranking { border-collapse: collapse; text-align: left; width: 100%; margin: 18px 0; }
+.mg-ranking th, .mg-ranking td { padding: 8px 10px; border-bottom: 1px solid #507088; }
