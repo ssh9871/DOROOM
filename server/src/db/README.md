@@ -8,13 +8,13 @@ PostgreSQL 16 기준. Docker로 DB와 pgAdmin을 한 번에 띄웁니다 (실행
 | --- | --- |
 | `schema_v2.sql` | **현재 스키마.** 26개 테이블 + 주간 랭킹 뷰. 빈 DB에 이것부터 실행 |
 | `seed_and_test_v2.sql` | 초기 데이터([가정] 값) + 핵심 흐름 검증 (뽑기·장착·강화·게임·보상·전승·랭킹·우편). schema 다음에 실행 |
-| `erd/ERD_v2_1_발표용_전체관계도.png` | 테이블·관계만 (발표용) |
-| `erd/ERD_v2_2_상세.png` | 컬럼·타입·키까지 (개발용) |
+| `erd/ERD_v2_1_overview.png` | 테이블·관계만 (발표용) |
+| `erd/ERD_v2_2_detail.png` | 컬럼·타입·키까지 (개발용) |
 | `erd/make_erd_v2.py` | 실행 중인 DB에서 ERD PNG를 다시 뽑는 스크립트 (Graphviz 필요) |
 | `docker-compose.yml` | PostgreSQL 16 + pgAdmin |
 
-설계 설명·바뀐 이유·아직 정할 것: `docs/db/DB_v2_변경사항_및_확정필요목록.md`
-API 명세: `docs/db/API_명세서_v1.md`
+설계 설명·바뀐 이유·아직 정할 것: `docs/db/DB_v2_changes_and_decisions.md`
+API 명세: `docs/db/API_spec_v1.md`
 
 ### 이전 버전 (v1, 중간발표 기준 — 참고용)
 `schema.sql`, `test_flows.sql`, `erd/ERD_1_*.png`, `erd/ERD_2_*.png`, `erd/*.mmd` — 더 이상 사용하지 않음.

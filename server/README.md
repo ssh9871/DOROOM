@@ -1,7 +1,7 @@
 # DOROOM 서버 개발 가이드
 
 > 작성: 양창규. DB v2 + API 명세서 v1 기준으로 개발을 시작합니다. 읽는 데 5분.
-> 관련 파일: `server/src/db/` (schema_v2.sql, seed_and_test_v2.sql, erd/) · `docs/db/` (API_명세서_v1.md, DB_v2_변경사항_및_확정필요목록.md)
+> 관련 파일: `server/src/db/` (schema_v2.sql, seed_and_test_v2.sql, erd/) · `docs/db/` (API_spec_v1.md, DB_v2_changes_and_decisions.md)
 
 ---
 
@@ -95,7 +95,7 @@
 
 ## 5. 🎤 유민 (발표)
 
-- ERD는 `erd/ERD_v2_1_발표용_전체관계도.png` (도메인별 색 구분), 상세는 `ERD_v2_2_상세.png`
+- ERD는 `erd/ERD_v2_1_overview.png` (도메인별 색 구분), 상세는 `ERD_v2_2_detail.png`
 - 설계 포인트 3개: ① 모든 셀 변동을 `cell_transaction` 원장에 기록 + 유니크 인덱스로 중복 보상 차단 ② 밸런스 수치는 코드가 아니라 규칙 테이블(`pet_grade_rule`, `stat_upgrade_rule` 등)에 ③ 랭킹은 저장 안 하고 뷰로 계산
 
 ---
