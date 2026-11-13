@@ -66,7 +66,7 @@ addCell(client, userId, amount, reason, refId)
 
 // services/petService.js
 addPetExp(client, userPetId, exp)       // 경험치 추가 + 레벨업 계산 (등급별 base_exp_per_level)
-getPetCombatStats(userId, userPetId)    // 고유 능력 + 장착 장비 + 스탯 강화 합산 (게임 시작용)
+getPetCombatStats(userId, userPetId)    // 등급 기본값 × 진화 배율 + 장착 장비 + 영구 강화 (레벨 무관, 11/13 확정)
 assertPetCanSortie(userPetId)           // 배고픔 검사, 미달이면 PET_TOO_HUNGRY throw
 
 // services/inventoryService.js

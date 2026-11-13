@@ -4,16 +4,16 @@ import { getSetting } from '../db/pool.js';
 import { AppError } from '../utils/errors.js';
 
 // ───────────────────────────────────────────────────────────────
-// [가정] 펫 기본 능력치 — 회의에서 "A안(등급 기본값 + 레벨 증가 × 진화 배율)"이 확정되면
-// 이 상수를 pet_grade_rule / pet_evolution_rule 컬럼으로 옮긴다 (migrations/001_pet_base_stats.sql).
-// 그 전까지는 여기 숫자만 바꾸면 됨. 미니게임 팀은 getPetCombatStats 결과만 쓰므로 영향 없음.
+// 펫 기본 능력치 — 11/13 확정 (C안): 레벨은 진화 조건일 뿐 능력치에 영향 없음.
+//   전투 능력치 = 등급 기본값 × 진화 단계 배율 (+ 장비 + 영구 강화)
+// 숫자는 [가정]. 바꿀 땐 여기만 수정 (나중에 pet_grade_rule / pet_evolution_rule 컬럼으로 옮길 수 있음).
+// 미니게임 팀은 getPetCombatStats 결과만 쓰므로 영향 없음.
 const BASE_STATS = {
-  //          attack, maxHp, moveSpeed, bulletSpeed   /  레벨당 증가
-  NORMAL: { base: { ATTACK: 10, MAX_HP: 100, MOVE_SPEED: 100, BULLET_SPEED: 100 }, perLevel: { ATTACK: 1, MAX_HP: 10, MOVE_SPEED: 0, BULLET_SPEED: 0 } },
-  RARE:   { base: { ATTACK: 12, MAX_HP: 120, MOVE_SPEED: 100, BULLET_SPEED: 100 }, perLevel: { ATTACK: 1.2, MAX_HP: 12, MOVE_SPEED: 0, BULLET_SPEED: 0 } },
-  LEGEND: { base: { ATTACK: 15, MAX_HP: 150, MOVE_SPEED: 100, BULLET_SPEED: 100 }, perLevel: { ATTACK: 1.5, MAX_HP: 15, MOVE_SPEED: 0, BULLET_SPEED: 0 } },
+  NORMAL: { ATTACK: 10, MAX_HP: 100, MOVE_SPEED: 100, BULLET_SPEED: 100 },
+  RARE:   { ATTACK: 12, MAX_HP: 120, MOVE_SPEED: 100, BULLET_SPEED: 100 },
+  LEGEND: { ATTACK: 15, MAX_HP: 150, MOVE_SPEED: 100, BULLET_SPEED: 100 },
 };
-const EVOLUTION_MULTIPLIER = { 1: 1.0, 2: 1.3, 3: 1.7 }; // [가정]
+const EVOLUTION_MULTIPLIER = { 1: 1.0, 2: 1.3, 3: 1.7 }; // 진화 단계별 배율 [가정]
 // ───────────────────────────────────────────────────────────────
 
 /** 레벨업에 필요한 경험치 = 현재 레벨 × 등급 기본값 [가정] */
@@ -74,13 +74,11 @@ export async function getPetCombatStats(db, userId, userPetId) {
   if (!rows.length) throw new AppError('NOT_FOUND', '펫 없음');
   const pet = rows[0];
 
-  // 1) 기본값
-  const cfg = BASE_STATS[pet.grade];
+  // 1) 기본값 = 등급 기본값 × 진화 배율 (레벨 무관)
+  const base = BASE_STATS[pet.grade];
   const mul = EVOLUTION_MULTIPLIER[pet.evolution_stage] ?? 1;
   const stats = {};
-  for (const code of Object.keys(cfg.base)) {
-    stats[code] = Math.floor((cfg.base[code] + cfg.perLevel[code] * (pet.level - 1)) * mul);
-  }
+  for (const code of Object.keys(base)) stats[code] = Math.floor(base[code] * mul);
 
   // 2) 장착 장비
   const eq = await db.query(
