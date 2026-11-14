@@ -1770,7 +1770,7 @@ body.leaderboard-open { overflow: hidden; }
   transform: translate(-50%, -50%) scale(var(--mg-scale, 1));
   overflow: hidden; background: #11243a;
 }
-.mg-frame img, .mg-frame canvas, .mg-menu, .mg-map, .mg-cat { image-rendering: pixelated; }
+.mg-frame img, .mg-frame canvas, .mg-menu, .mg-map { image-rendering: pixelated; }
 .mg-frame button {
   border: 1px solid #7aadc7; border-radius: 8px; padding: 10px 18px; background: #163550;
   color: #fff; font-family: inherit; font-size: 18px; font-weight: 700; line-height: 1.35;
@@ -1803,8 +1803,6 @@ body.leaderboard-open { overflow: hidden; }
 .mg-frame .mg-pet-actions button { display: inline-flex; align-items: center; gap: 6px; height: 48px; padding-block: 0; }
 .mg-pet-actions button img { margin: 0; }
 .mg-upgrade-list small { display: block; padding-left: 42px; color: #c4dbea; }
-.mg-cat { display: inline-block; width: 48px; height: 48px; vertical-align: middle; margin-right: 8px;
-  background: url('/assets/minigame/pets/pet-cat-001.png') left top / 240px 48px no-repeat; }
 .mg-map-panel { padding: 9px 24px; }
 .mg-map-panel h1 { margin-bottom: 8px; font-size: 30px; }
 .mg-tabs { display: flex; gap: 8px; margin-bottom: 8px; }

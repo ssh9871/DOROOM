@@ -3,6 +3,7 @@ import catalog from './shop-items.json' with { type: 'json' };
 import users from '../users/users.json' with { type: 'json' };
 import { baseLevels, scoreRun, upgradeIds, upgrades, weekStart, weeklyRanking, type RankedRun, type RunResult, type UpgradeId } from '../game/progress.ts';
 import { stages } from '../game/stages.ts';
+import { battlePets } from '../game/petCatalog.ts';
 
 export const pet = data.pets[0]!;
 export type Pet = typeof pet;
@@ -73,6 +74,9 @@ export function createPetState(storage: () => Pick<Storage, 'getItem' | 'setItem
         equippedId = snapshot.equippedId === pet.id ? pet.id : null;
         if (snapshot.equippedId !== undefined && snapshot.equippedId !== null && equippedId === null) recovered = true;
         const game = record(snapshot.minigame);
+        if (typeof game.petId === 'string' && battlePets.some(candidate => candidate.id === game.petId)) {
+          minigame.petId = game.petId;
+        }
         const levels = record(game.levels);
         for (const id of upgradeIds) minigame.levels[id] = restoreNumber(levels[id], 0, upgrades[id].costs.length);
         const cleared = record(game.cleared);
@@ -132,10 +136,9 @@ export function createPetState(storage: () => Pick<Storage, 'getItem' | 'setItem
       return { levels: { ...minigame.levels }, cleared: { ...minigame.cleared },
         best: { ...minigame.best }, petId: minigame.petId };
     },
-    get ownedPets() { return [{ ...currentPet }]; },
     weeklyRanking(at?: number) { return weeklyRanking(minigame.ranked, user, at); },
     equipRunPet(id: string) {
-      return id === pet.id && commitGame({ ...minigame, petId: id }, user.cells);
+      return battlePets.some(candidate => candidate.id === id) && commitGame({ ...minigame, petId: id }, user.cells);
     },
     buyUpgrade(id: UpgradeId) {
       const cost = upgrades[id].costs[minigame.levels[id]];

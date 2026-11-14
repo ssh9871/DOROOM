@@ -2,6 +2,7 @@ import { PlayerBullet } from './Bullet';
 import { PLAYER, PLAYER_BULLET, WORLD } from './config';
 import type { Input } from './Input';
 import { baseLevels, petDamageBonus, type Levels } from './progress';
+import { battlePetStats, type BattlePet } from './petCatalog';
 import { drawSprite } from './sprites';
 import { clamp } from './utils';
 
@@ -20,13 +21,18 @@ export class Player {
   private focus = false;
   private levels = baseLevels;
   private damage = PLAYER_BULLET.damage;
+  private speed = PLAYER.speed;
+  private bulletSpeed = PLAYER_BULLET.speed;
 
-  reset(levels: Levels, petLevel: number): void {
+  reset(levels: Levels, petLevel = 1, pet?: BattlePet): void {
     this.levels = levels;
-    this.damage = PLAYER_BULLET.damage * (1 + levels.damage / 10) * (1 + petDamageBonus(petLevel));
+    const stats = pet && battlePetStats(pet, PLAYER.maxHp);
+    this.damage = PLAYER_BULLET.damage * (1 + levels.damage / 10) * (stats?.damageScale ?? 1 + petDamageBonus(petLevel));
+    this.speed = PLAYER.speed * (stats?.moveSpeedScale ?? 1);
+    this.bulletSpeed = PLAYER_BULLET.speed * (stats?.bulletSpeedScale ?? 1);
     this.x = WORLD.width / 2;
     this.y = WORLD.height - 110;
-    this.maxHp = PLAYER.maxHp + levels['max-hp'];
+    this.maxHp = (stats?.maxHp ?? PLAYER.maxHp) + levels['max-hp'];
     this.hp = this.maxHp;
     this.isShieldActive = false;
     this.fireRate = 1;
@@ -40,7 +46,7 @@ export class Player {
     const dy = Number(input.down) - Number(input.up);
     this.direction = dx;
     this.focus = input.focus;
-    const speed = PLAYER.speed * (this.focus ? PLAYER.focusSpeedRatio : 1) * (dx && dy ? Math.SQRT1_2 : 1);
+    const speed = this.speed * (this.focus ? PLAYER.focusSpeedRatio : 1) * (dx && dy ? Math.SQRT1_2 : 1);
     this.x = clamp(this.x + dx * speed * dt, PLAYER.width / 2, WORLD.width - PLAYER.width / 2);
     this.y = clamp(this.y + dy * speed * dt, PLAYER.height / 2, WORLD.height - PLAYER.height / 2);
     this.invulnerable = Math.max(0, this.invulnerable - dt);
@@ -51,7 +57,7 @@ export class Player {
       const count = 1 + this.levels.amount;
       for (let i = 0; i < count; i++) {
         emit(new PlayerBullet(this.x + (i - (count - 1) / 2) * 18, this.y - 36,
-          this.damage, 1 + this.levels.size / 10));
+          this.damage, 1 + this.levels.size / 10, this.bulletSpeed));
       }
     }
   }
@@ -63,9 +69,9 @@ export class Player {
     return true;
   }
 
-  heal(): boolean {
+  heal(amount = 1): boolean {
     if (this.hp <= 0 || this.hp === this.maxHp) return false;
-    this.hp++;
+    this.hp = Math.min(this.maxHp, this.hp + amount);
     return true;
   }
 

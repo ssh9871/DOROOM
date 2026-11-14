@@ -114,8 +114,8 @@ export class Game {
     this.id = id;
     this.area = this.elapsed = this.purified = 0;
     this.bossPractice = false;
-    this.player.reset(this.setup.levels, setup.petLevel);
-    this.pet.reset(this.player, setup.skill);
+    this.player.reset(this.setup.levels, setup.petLevel, setup.pet);
+    this.pet.reset(this.player, setup.skill, setup.pet);
     this.resetArea();
     this.state = 'playing';
     this.input.clear();
@@ -144,8 +144,8 @@ export class Game {
     if (!this.setup || !this.canSkipToBoss) return;
     this.bossPractice = true;
     this.elapsed = this.purified = 0;
-    this.player.reset(this.setup.levels, this.setup.petLevel);
-    this.pet.reset(this.player, this.setup.skill);
+    this.player.reset(this.setup.levels, this.setup.petLevel, this.setup.pet);
+    this.pet.reset(this.player, this.setup.skill, this.setup.pet);
     this.resetArea();
     this.input.clear();
     this.areaTime = BOSS_AT;

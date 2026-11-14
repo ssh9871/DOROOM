@@ -12,6 +12,7 @@ const { Enemy } = await import('./Enemy.ts');
 const { EnemyBullet, PlayerBullet } = await import('./Bullet.ts');
 const { createPetState } = await import('../pets/pets.ts');
 const { baseLevels, scoreRun, weekStart, weeklyRanking } = await import('./progress.ts');
+const { battlePets } = await import('./petCatalog.ts');
 const { canEnterEndless, canEnterStage, endlessStages, stages } = await import('./stages.ts');
 const { WORLD } = await import('./config.ts');
 
@@ -339,6 +340,33 @@ assert.equal(results.at(-1).outcome, 'return');
 start({ petLevel: 2 });
 game.step(dt);
 near(game.playerBullets[0].damage, 1.15);
+
+const petSave = new Map();
+const petStorage = () => ({
+  getItem: key => petSave.get(key) ?? null,
+  setItem: (key, value) => petSave.set(key, value),
+  removeItem: key => petSave.delete(key),
+});
+const petState = createPetState(petStorage);
+assert.equal(battlePets.length, 4);
+assert.equal(petState.equipRunPet('unknown-pet'), false);
+for (const [index, pet] of battlePets.entries()) {
+  assert.equal(petState.equipRunPet(pet.id), true);
+  assert.equal(createPetState(petStorage).minigame.petId, pet.id);
+  start({ pet, skill: pet.ability.id });
+  assert.equal(game.player.maxHp, [5, 5, 6, 8][index]);
+  game.player.hp--;
+  const previousHp = game.player.hp;
+  game.enemyBullets.push(new EnemyBullet(100, 100, 0, 0));
+  assert.equal(game.activatePetSkill(), true);
+  assert.equal(game.pet.cooldownRemaining, [15, 20, 25, 30][index]);
+  assert.equal(game.player.hp, previousHp + Number(index === 0));
+  assert.equal(game.player.fireRate, index === 1 ? 1.5 : 1);
+  assert.equal(game.player.isShieldActive, index === 2);
+  assert.equal(game.enemyBullets.length, index === 3 ? 0 : 1);
+  game.step(dt);
+  near(game.playerBullets[0].damage, [1, 1, 1.2, 1.5][index]);
+}
 
 start();
 const elite = new Enemy('elite', 'patrol', 240, ['dash']);

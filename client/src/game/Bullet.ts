@@ -16,8 +16,8 @@ export class PlayerBullet extends Bullet {
   readonly width: number;
   readonly height: number;
 
-  constructor(x: number, y: number, public readonly damage = PLAYER_BULLET.damage, size = 1) {
-    super(x, y, 0, -PLAYER_BULLET.speed);
+  constructor(x: number, y: number, public readonly damage = PLAYER_BULLET.damage, size = 1, speed = PLAYER_BULLET.speed) {
+    super(x, y, 0, -speed);
     this.width = PLAYER_BULLET.width * size;
     this.height = PLAYER_BULLET.height * size;
   }

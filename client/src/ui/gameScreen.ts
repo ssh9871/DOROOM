@@ -1,7 +1,9 @@
 import { Game } from '../game/Game';
 import { asset, areaImage, drawSprite, loadBattle, loadSprite } from '../game/sprites';
 import { canEnterEndless, canEnterStage, endlessStages, operations, speakers, stages, type Dialogue } from '../game/stages';
-import { BOSS_TIME_LIMIT, petDamageBonus, scoreRun, skillCooldown, skills, upgradeIds, upgrades, type RunResult, type RunSetup, type SkillId, type UpgradeId } from '../game/progress';
+import { BOSS_TIME_LIMIT, scoreRun, skills, upgradeIds, upgrades, type RunResult, type RunSetup, type UpgradeId } from '../game/progress';
+import { battlePets, battlePetStats } from '../game/petCatalog';
+import { PLAYER } from '../game/config';
 import type { PetState } from '../pets/pets';
 import { formatWeek } from './weeklyRanking';
 
@@ -199,7 +201,7 @@ export function openGame(state: PetState, onClose: () => void): () => void {
     const allowed = canEnterStage(selected, progress.cleared, debug);
     show(panel(`${stage.id} ${stage.name}`, `<p>${stage.intro}</p>
       <p>목표 · ${stage.bossName} 정화 및 ${stage.objective}</p><p>5분까지 일반 웨이브 · 이후 보스전</p>
-      ${selected > 0 ? `<p>보스전은 ${BOSS_TIME_LIMIT}초 동안 진행돼요. 발사체 개수·피해량을 강화하거나 마이룸에서 펫을 성장시켜 보세요.</p>` : ''}
+      ${selected > 0 ? `<p>보스전은 ${BOSS_TIME_LIMIT}초 동안 진행돼요. 발사체 개수·피해량을 강화하거나 펫 설정에서 출전 펫을 바꿔 보세요.</p>` : ''}
       ${allowed ? button('enter', '입장') : `<p>${stages[selected - 1]!.id} 클리어 후 입장할 수 있어요.</p>`}
       ${button('map-point', '지도로')}`), areaImage(stage.zone, 'map'));
   }
@@ -207,9 +209,8 @@ export function openGame(state: PetState, onClose: () => void): () => void {
   function begin(runMode: RunSetup['mode'], index: number, isRetry = false): void {
     const allowed = runMode === 'endless' ? canEnterEndless(progress.cleared, debug) : canEnterStage(index, progress.cleared, debug);
     if (!allowed) return;
-    const pet = state.ownedPets.find(owned => owned.id === progress.petId) ?? state.pet;
-    const skill = pet.ability.id in skills ? pet.ability.id as SkillId : 'shield';
-    const setup = { mode: runMode, stage: runMode === 'endless' ? endlessStages[0] : index, levels: progress.levels, skill, petLevel: pet.level };
+    const pet = battlePets.find(candidate => candidate.id === progress.petId)!;
+    const setup = { mode: runMode, stage: runMode === 'endless' ? endlessStages[0] : index, levels: progress.levels, skill: pet.ability.id, pet };
     active = setup;
     retry = isRetry;
     const stage = stages[setup.stage]!;
@@ -344,16 +345,21 @@ export function openGame(state: PetState, onClose: () => void): () => void {
   }
 
   function showPets(message = '', focus?: string): void {
-    const pet = state.ownedPets.find(owned => owned.id === inspectingPet) ?? state.pet;
-    const skill = pet.ability.id as SkillId;
+    const pet = battlePets.find(candidate => candidate.id === inspectingPet)!;
+    const skill = pet.ability.id;
+    const stats = battlePetStats(pet, PLAYER.maxHp);
+    const description = skill === 'rapid-fire'
+      ? `5초 동안 자동 발사 빈도가 ${Math.round((pet.ability.effectValue - 1) * 100)}% 증가해요.`
+      : skill === 'heal' ? `체력을 ${stats.healHp} HP 회복해요.` : skills[skill].description;
     show(panel('펫 설정', `
       <div class="mg-columns">
-        <div class="mg-pet-list">${state.ownedPets.map(owned =>
+        <div class="mg-pet-list">${battlePets.map(owned =>
           `<button type="button" data-pet="${owned.id}" aria-pressed="${owned.id === pet.id}">
-            <span class="mg-cat" aria-hidden="true"></span>${owned.name}${owned.id === progress.petId ? ' · 출전 중' : ''}</button>`).join('')}</div>
-        <section><h2>${pet.name}</h2><p>${icon(`skill-${skill}`)} ${skills[skill].name}</p><p>${skills[skill].description}</p>
-          <p>재사용 대기 ${skillCooldown}초</p>
-          <p>펫 Lv. ${pet.level} · 정화 펄스 피해량 +${Math.round(petDamageBonus(pet.level) * 100)}%</p>
+            <span aria-hidden="true">${owned.icon}</span> ${owned.name}${owned.id === progress.petId ? ' · 출전 중' : ''}</button>`).join('')}</div>
+        <section><h2>${pet.name} · ${pet.grade}</h2><p>${icon(`skill-${skill}`)} ${pet.ability.name}</p><p>${description}</p>
+          <p>재사용 대기 ${pet.ability.cooldownSec}초</p>
+          <p>기본 공격력 ${pet.attack} · 체력 ${pet.maxHp}<br>이동속도 ${pet.moveSpeed} · 탄속 ${pet.bulletSpeed}</p>
+          <p>전투 기본 체력 ${stats.maxHp} HP · 정화 펄스 피해량 ${Math.round(stats.damageScale * 100)}%</p>
           <div class="mg-pet-actions">${button('equip', '장착')}${button('gear', '장비 슬롯', 'gear-slot')}</div>
           <p role="status"></p></section>
       </div>${button('main', '메인으로')}`), 'scenes/main-hangar', false, focus);
@@ -389,7 +395,7 @@ export function openGame(state: PetState, onClose: () => void): () => void {
     if (target.dataset.zone !== undefined) { zone = Number(target.dataset.zone); map(); menu.querySelector<HTMLElement>(`[data-zone="${zone}"]`)?.focus(); return; }
     if (target.dataset.stage !== undefined) { selected = Number(target.dataset.stage); intro(); return; }
     if (target.dataset.upgrade) { upgrade = target.dataset.upgrade as UpgradeId; showUpgrades('', `[data-upgrade="${upgrade}"]`); return; }
-    if (target.dataset.pet) { inspectingPet = target.dataset.pet; showPets('', '[data-pet]'); return; }
+    if (target.dataset.pet) { inspectingPet = target.dataset.pet; showPets('', `[data-pet="${inspectingPet}"]`); return; }
     switch (target.dataset.action) {
       case 'debug': debug = !debug; main(); menu.querySelector<HTMLElement>('.mg-debug')?.focus(); break;
       case 'exit': onClose(); break;
