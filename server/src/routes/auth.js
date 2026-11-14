@@ -9,6 +9,35 @@ import { signToken } from '../middleware/auth.js';
 import { getUserDto } from './me.js';
 
 const router = Router();
+// shortcut: accounts match the current seed; mark demo accounts in the DB when the roster grows.
+const demoLoginIds = ['kim', 'lee'];
+
+function requireLocalDemo(req, res, next) {
+  const origin = req.get('origin');
+  const localIp = ['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(req.ip);
+  const localHost = ['localhost', '127.0.0.1', '[::1]'].includes(req.hostname);
+  if (process.env.NODE_ENV === 'production' || process.env.DEMO_ACCOUNT_LOGIN !== 'true' ||
+      !localIp || !localHost || (origin && !/^http:\/\/(localhost|127\.0\.0\.1|\[::1\])(:\d+)?$/.test(origin))) {
+    return next(new AppError('NOT_FOUND'));
+  }
+  res.set('Cache-Control', 'no-store');
+  next();
+}
+
+router.get('/demo-accounts', requireLocalDemo, wrap(async (req, res) => {
+  const { rows } = await pool.query(
+    'SELECT login_id AS "loginId", nickname FROM app_user WHERE login_id = ANY($1) ORDER BY login_id',
+    [demoLoginIds]);
+  ok(res, rows);
+}));
+
+router.post('/demo-login', requireLocalDemo, wrap(async (req, res) => {
+  const { loginId } = req.body ?? {};
+  if (!demoLoginIds.includes(loginId)) throw new AppError('NOT_FOUND', '테스트 계정을 찾을 수 없습니다');
+  const { rows } = await pool.query('SELECT user_id FROM app_user WHERE login_id = $1', [loginId]);
+  if (!rows.length) throw new AppError('NOT_FOUND', '테스트 계정을 찾을 수 없습니다');
+  ok(res, { token: signToken(rows[0].user_id), user: await getUserDto(pool, rows[0].user_id) });
+}));
 
 // POST /auth/signup  {loginId, password, nickname} → {userId, nickname}
 router.post('/signup', wrap(async (req, res) => {

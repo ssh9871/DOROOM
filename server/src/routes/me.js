@@ -15,12 +15,12 @@ const titleDto = (r) => (r && r.title_id ? { titleId: r.title_id, code: r.code, 
 /** User DTO (auth.js에서도 사용) */
 export async function getUserDto(db, userId) {
   const { rows } = await db.query(
-    `SELECT u.user_id, u.nickname, u.cell_balance, t.title_id, t.code, t.name
+    `SELECT u.user_id, u.login_id, u.nickname, u.cell_balance, t.title_id, t.code, t.name
        FROM app_user u LEFT JOIN title t ON t.title_id = u.equipped_title_id
       WHERE u.user_id = $1`, [userId]);
   if (!rows.length) throw new AppError('NOT_FOUND', '회원 없음');
   const r = rows[0];
-  return { userId: r.user_id, nickname: r.nickname, cellBalance: r.cell_balance, equippedTitle: titleDto(r) };
+  return { userId: r.user_id, loginId: r.login_id, nickname: r.nickname, cellBalance: r.cell_balance, equippedTitle: titleDto(r) };
 }
 
 // GET /me → User
