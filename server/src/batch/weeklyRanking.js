@@ -5,8 +5,9 @@ import { pool, withTransaction, getSetting } from '../db/pool.js';
 
 export async function runWeeklyRanking(weekStart /* 'YYYY-MM-DD' | undefined = 지난주 */) {
   return withTransaction(async (client) => {
+    // 지난주 월요일 (한국시간 기준)
     const ws = weekStart ?? (await client.query(
-      `SELECT (date_trunc('week', CURRENT_DATE) - INTERVAL '7 days')::date AS ws`)).rows[0].ws;
+      `SELECT (date_trunc('week', (now() AT TIME ZONE 'Asia/Seoul')) - INTERVAL '7 days')::date AS ws`)).rows[0].ws;
     const top1 = await getSetting(client, 'RANK_REWARD_TOP1', 300);
     const top3 = await getSetting(client, 'RANK_REWARD_TOP3', 200);
     const top10 = await getSetting(client, 'RANK_REWARD_TOP10', 100);

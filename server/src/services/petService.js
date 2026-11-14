@@ -87,13 +87,14 @@ export async function getPetCombatStats(db, userId, userPetId) {
       WHERE upe.user_pet_id = $1`, [userPetId]);
   for (const r of eq.rows) stats[r.stat_code] = (stats[r.stat_code] ?? 0) + r.stat_value;
 
-  // 3) 영구 스탯 강화 (계정 전체 적용 [가정])
+  // 3) 영구 스탯 강화 (계정 전체 적용 [가정]). scope='PET' 코드만 합산 — 미니게임용(PROJECTILE_COUNT 등)은 GameStart.upgrades 로 따로 전달
   const up = await db.query(
     `SELECT u.stat_code, r.value_bonus
        FROM user_stat_upgrade u
        JOIN stat_upgrade_rule r ON r.stat_code = u.stat_code AND r.level = u.level
+       JOIN stat_code c ON c.stat_code = u.stat_code AND c.scope = 'PET'
       WHERE u.user_id = $1 AND u.level > 0`, [userId]);
-  for (const r of up.rows) stats[r.stat_code] = (stats[r.stat_code] ?? 0) + r.value_bonus;
+  for (const r of up.rows) stats[r.stat_code] = (stats[r.stat_code] ?? 0) + Number(r.value_bonus);
 
   return {
     attack: stats.ATTACK ?? 0,
