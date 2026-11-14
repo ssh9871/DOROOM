@@ -3,7 +3,7 @@
 > 목적: 미니게임 팀(석훈·기범)과 도로팜 팀(길·창규)이 **같은 이름·같은 응답 형태**로 개발하기 위한 약속
 > 서버: Node.js + Express / DB: PostgreSQL 16 (`schema_v2.sql`) / 모든 응답은 JSON
 > 담당 표시: 🟦 공통(창규) · 🟩 도로팜 · 🟥 미니게임
-> 상태: v1 (11/13). 밸런스 수치·공식은 [가정]이며 바뀌어도 주소·응답 모양은 유지. 능력치 코드(ATTACK 등)는 미니게임 팀이 확정하면 CombatStats 필드명만 맞춤
+> 상태: v1.1 (11/14 미니게임 5장·강화 반영). 밸런스 수치·공식은 [가정]이며 바뀌어도 주소·응답 모양은 유지. 능력치 코드(ATTACK 등)는 미니게임 팀이 확정하면 CombatStats 필드명만 맞춤
 > 이 문서에서 바꾸고 싶은 게 있으면 **먼저 여기를 고치고** 코드를 고친다.
 
 ---
@@ -146,8 +146,20 @@ addEquipment(client, userId, equipmentId, qty)
 | POST /equipments/merge | 같은 장비 n개 + 셀 → 다음 등급 | {equipmentId} → {consumed: UserEquipment, created: UserEquipment, balance} |
 | PUT /pets/:userPetId/equipments/:slotNo | 장착 (교체 포함) | {equipmentId} → PetDetail |
 | DELETE /pets/:userPetId/equipments/:slotNo | 해제 | → PetDetail |
-| GET /stat-upgrades | 내 스탯 강화 현황 + 다음 레벨 비용 | → StatUpgrade[] |
-| POST /stat-upgrades/:statCode | 1레벨 강화 | → StatUpgrade |
+| GET /stat-upgrades | 영구 강화 현황 (8종: 펫용 4 + 미니게임용 4) ✅ 구현 | → StatUpgrade[] |
+| POST /stat-upgrades/:statCode | 1단계 구매 (셀 차감 + 단계 갱신, 한 트랜잭션) ✅ 구현 | → {upgrade: StatUpgrade, balance} |
+
+**영구 강화 코드 (stat_code 테이블, 11/14)**
+
+| 코드 | 이름 | scope | 단위 | 최대 | 단계별 비용(셀) | 누적 효과 |
+| --- | --- | --- | --- | ---: | --- | --- |
+| ATTACK / MAX_HP / MOVE_SPEED / BULLET_SPEED | 공격력 / 체력 / 이동속도 / 탄속 | PET (getPetCombatStats 에 합산) | FLAT | 5 | 50 / 100 / 150 / 200 / 250 | +5 씩 [가정] |
+| PROJECTILE_COUNT | 발사체 개수 | MINIGAME (GameStart.upgrades) | FLAT | 2 | 120 / 300 | +1발 씩 |
+| DAMAGE | 피해량 | MINIGAME | PERCENT | 5 | 60 / 100 / 150 / 220 / 320 | +10% 씩 |
+| PROJECTILE_SIZE | 발사체 크기 | MINIGAME | PERCENT | 5 | 50 / 80 / 120 / 180 / 260 | +10% 씩 |
+| HP | 체력 | MINIGAME | FLAT | 3 | 80 / 150 / 280 | +1 HP 씩 |
+
+`valueBonus` 는 현재 단계까지의 **누적** 값 (DAMAGE 2단계 = 20 → +20%). 미니게임용은 서버가 합산하지 않고 `GameStart.upgrades` 로 넘기면 게임이 적용.
 
 **서버 처리 메모**
 - 장착: pet_grade_rule.equip_slot_count로 슬롯 해금 검사 → 안 열렸으면 SLOT_LOCKED. slotNo와 slotType은 1=HEAD, 2=BODY, 3=ACCESSORY 고정 [가정]
@@ -156,38 +168,52 @@ addEquipment(client, userId, equipmentId, qty)
 
 ---
 
-## 5. 🟥 미니게임 — 게임·스테이지·랭킹
+## 5. 🟥 미니게임 — 게임·스테이지·랭킹  ✅ 11/14 서버 구현 완료
 
 | API | 설명 | 요청 → 응답 data |
 | --- | --- | --- |
-| GET /stages | 작전 목록 + 내 해금·클리어 상태 | → Stage[] |
-| POST /game/start | 게임 시작 | {mode: "STAGE" 또는 "ENDLESS", stageNo?, userPetId, buffItemIds?} → GameStart |
-| POST /game/:runId/finish | 게임 종료 + 보상 | {survivalMs, killCount, reachedWave, cleared, reviveUsed} → GameResult |
+| GET /stages | 12개 지점(1-1 ~ 4-3) + 내 해금·클리어 상태 + 무한모드 해금 여부 | → StageList = {stages: Stage[], endlessUnlocked} |
+| POST /game/start | 게임 시작 (출전 검증 → 능력치·강화 반환 → game_run 생성) | {mode: "STAGE" 또는 "ENDLESS", stageNo?, userPetId, buffItemIds?, practice?} → GameStart |
+| POST /game/:runId/finish | 게임 종료 + 보상 (서버가 점수 계산) | {survivalMs, killCount, reachedWave, cleared, reviveUsed} → GameResult |
 | POST /game/:runId/abort | 중도 포기 (보상 없음) | → {runId} |
-| GET /game/history | 내 게임 기록 | ?limit=20 → GameRun[] |
-| GET /ranking | 주간 랭킹 | ?weekStart=YYYY-MM-DD&limit=10 → {weekStart, myRank, entries: RankingEntry[]} |
+| GET /game/history | 내 전적 | ?mode=ENDLESS&limit=20&offset=0 → GameRun[] |
+| GET /ranking | 주간 랭킹 | ?weekStart=YYYY-MM-DD&limit=10 → Ranking = {weekStart, myRank, entries} |
 
-**스테이지 해금 규칙 [가정]**: 1스테이지는 항상 열림, N스테이지는 N−1을 한 번이라도 클리어(user_stage_clear)하면 열림. `/game/start`에서 안 열린 스테이지면 VALIDATION
+**지점 ID**: 표시 ID `w-s` ↔ `stageNo = (w-1)×3 + s` (1-1=1 … 4-3=12). 작전 w 의 세 번째 지점(w-3)이 보스전(`isBoss`).
+
+**해금 규칙**: 1-1 기본 해금 → 직전 지점 클리어 시 다음 지점 해금 → **4-3 클리어 시 무한모드 해금**. 안 열린 지점/무한모드로 start 하면 VALIDATION.
+
+**연습 모드 (`practice: true`)**: 기록·보상·랭킹 전부 제외. `runId` 는 null, 잠긴 지점도 입장 가능, 버프 아이템 소모 없음. finish 호출 불필요. 디버그용.
 
 **게임 시작 (start) 서버 순서**
-1. assertPetCanSortie → 배고픔 미달이면 PET_TOO_HUNGRY
-2. getPetCombatStats로 전투 능력치 계산 → 응답에 담아 클라이언트가 그대로 씀
-3. buffItemIds가 있으면 useItem으로 소모, applied_buffs에 기록
-4. game_run INSERT (status=PLAYING, pet_level_snapshot, pet_stage_snapshot)
+1. `userPetId` 가 내 펫인지 → 아니면 NOT_FOUND / assertPetCanSortie → 배고픔 미달이면 PET_TOO_HUNGRY
+2. 해금 검사 (연습 모드 제외)
+3. getPetCombatStats → `combatStats`, 영구 강화 목록 → `upgrades` (미니게임용 PROJECTILE_COUNT/DAMAGE/PROJECTILE_SIZE/HP 포함, 게임 안에서 적용)
+4. buffItemIds 소모 → game_run INSERT (PLAYING, 펫 종·레벨·진화 스냅샷) → `runId`
 
 **게임 종료 (finish) 서버 순서**
-1. game_run이 PLAYING인지 확인 → 아니면 ALREADY_FINISHED
-2. 검증 [가정]: survivalMs ≤ (지금 − started_at) + 5초, killCount ≤ survivalMs/1000 × 20 → 넘으면 VALIDATION
-3. **점수는 서버가 계산** (클라이언트 점수는 받지 않음) [가정]
-   `score = floor(survivalMs/1000) × 10 + killCount × 5 + (cleared ? stage.clear_bonus_score : 0)`
-4. 보상 [가정]: ENDLESS → 셀 = floor(score/100) / STAGE → cleared면 repeat_reward_cell, 첫 클리어면 first_clear_reward_cell 추가 (user_stage_clear 기록)
-5. addCell(+, GAME_REWARD / STAGE_FIRST_CLEAR), addPetExp(floor(score/10)) [가정]
-6. game_run UPDATE (status=FINISHED, score, reward_cell, exp_gained, week_start)
-   - week_start = 종료 시각이 속한 주의 **월요일 날짜** (`date_trunc('week', ended_at)`, PostgreSQL 기본이 월요일 시작)
+1. `req.userId` 소유의 run 만 (남의 run 은 NOT_FOUND). 행 잠금(FOR UPDATE) → finish/abort 동시 요청에도 한쪽만 확정
+2. 이미 FINISHED → **저장된 결과를 그대로 반환** (`replayed: true`, 보상 재지급 없음 — 응답 유실 대비) / ABORTED → ALREADY_FINISHED
+3. 검증: `survivalMs ≤ 서버 경과 시간 + 5초`, `killCount ≤ (초 × 20) + 20`, 무한모드에 cleared=true 불가 → VALIDATION
+4. **점수 = floor(survivalMs/1000) × 10 + killCount × 5 + (cleared ? 지점 clearBonusScore : 0)**
+5. 보상: 무한모드 셀 = floor(score/100) / 스테이지 클리어 = repeatRewardCell + 첫 클리어면 firstClearRewardCell (user_stage_clear PK 로 동시 첫 클리어도 1회) / 경험치 = floor(score/10) → addPetExp
+6. addCell(GAME_REWARD, STAGE_FIRST_CLEAR; ref_id = runId → 유니크 인덱스가 중복 지급 차단), game_run UPDATE(FINISHED, week_start)
+7. 한 트랜잭션. 중간 실패 시 전부 롤백
 
-**랭킹**
-- v_weekly_ranking 뷰 = 주차별 · ENDLESS · FINISHED 판의 MAX(score)로 RANK
-- 마감: 매주 월요일 00:00 배치(🟦)가 지난주 순위로 reward_mail 발송, 1위는 칭호 포함 [가정]
+**week_start**: 종료 시각을 **한국시간**으로 본 그 주 **월요일** 날짜 (`date_trunc('week', ended_at AT TIME ZONE 'Asia/Seoul')`). 주간 보상 배치의 "지난주"도 같은 기준.
+
+**랭킹**: `v_weekly_ranking` 뷰 = 주차별 · ENDLESS · FINISHED 판의 사람당 MAX(score). **동점이면 그 점수를 먼저 달성한 계정이 위** (`achievedAt`). 상위 10명 + 내 순위. 지난주는 `?weekStart=`.
+
+**지점별 가산점·보상 [가정] (석훈 팀이 조정 가능, stage 테이블 값만 바꾸면 됨)**
+
+| 지점 | 클리어 가산점 | 첫 클리어 셀 | 반복 셀 |
+| --- | ---: | ---: | ---: |
+| 1-1 / 1-2 / 1-3(보스) | 50 / 100 / 250 | 40 / 50 / 110 | 7 / 9 / 11 |
+| 2-1 / 2-2 / 2-3(보스) | 200 / 250 / 400 | 70 / 80 / 140 | 12 / 14 / 16 |
+| 3-1 / 3-2 / 3-3(보스) | 350 / 400 / 550 | 100 / 110 / 170 | 17 / 19 / 21 |
+| 4-1 / 4-2 / 4-3(보스) | 500 / 550 / 700 | 130 / 140 / 200 | 22 / 24 / 26 |
+
+공식: 가산점 = (w−1)×150 + s×50 (+보스 100), 첫 클리어 = w×30 + s×10 (+보스 50), 반복 = w×5 + s×2
 
 ---
 
@@ -213,7 +239,7 @@ addEquipment(client, userId, equipmentId, qty)
 type Grade = "NORMAL" | "RARE" | "LEGEND";
 
 interface User {
-  userId: number; nickname: string; cellBalance: number; equippedTitle: Title | null;
+  userId: number; loginId: string; nickname: string; cellBalance: number; equippedTitle: Title | null;
 }
 interface Title { titleId: number; code: string; name: string; }
 interface CellTransaction {
@@ -253,7 +279,11 @@ interface Equipment {
   modelUrl: string | null;
 }
 interface UserEquipment { equipment: Equipment; quantity: number; }
-interface StatUpgrade { statCode: string; level: number; valueBonus: number; nextCellCost: number | null; }
+interface StatUpgrade {
+  statCode: string; name: string; unit: "FLAT" | "PERCENT"; scope: "PET" | "MINIGAME";
+  level: number; maxLevel: number; valueBonus: number; nextCellCost: number | null;
+}
+interface StatUpgradeBuyResult { upgrade: StatUpgrade; balance: number; }
 
 interface GachaPool {
   poolId: number; poolType: "PET" | "EQUIPMENT"; name: string; costCell: number;
@@ -267,22 +297,32 @@ interface GachaResult {
 interface GachaLog { gachaId: number; poolId: number; species?: PetSpecies; equipment?: Equipment; createdAt: string; }
 
 interface Stage {
-  stageNo: number; name: string; bossName: string; briefing: string;
-  unlocked: boolean; cleared: boolean; firstClearRewardCell: number; repeatRewardCell: number;
+  stageNo: number; displayId: string; worldNo: number; subNo: number; isBoss: boolean;
+  name: string; bossName: string; briefing: string;
+  clearBonusScore: number; firstClearRewardCell: number; repeatRewardCell: number;
+  unlocked: boolean; cleared: boolean;
 }
+interface StageList { stages: Stage[]; endlessUnlocked: boolean; }
+interface GameStartRequest { mode: "STAGE" | "ENDLESS"; stageNo?: number; userPetId: number; buffItemIds?: number[]; practice?: boolean; }
 interface GameStart {
-  runId: number; mode: "STAGE" | "ENDLESS"; stageNo: number | null;
-  pet: Pet; combatStats: CombatStats; appliedBuffs: Item[];
+  runId: number | null; practice: boolean; mode: "STAGE" | "ENDLESS"; stageNo: number | null; stage: Stage | null;
+  pet: Pet; combatStats: CombatStats; upgrades: StatUpgrade[]; appliedBuffs: Item[];
 }
+interface GameFinishRequest { survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; reviveUsed: boolean; }
 interface GameResult {
-  runId: number; score: number; rewardCell: number; firstClearBonus: number; expGained: number;
-  pet: Pet; balance: number; newRank: number | null;
+  runId: number; replayed: boolean; mode: "STAGE" | "ENDLESS"; stageNo: number | null;
+  score: number; rewardCell: number; firstClearBonus: number; expGained: number; cleared: boolean;
+  pet: Pet | null; balance: number; newRank: number | null;
 }
 interface GameRun {
-  runId: number; mode: string; stageNo: number | null; score: number;
-  survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; startedAt: string;
+  runId: number; mode: "STAGE" | "ENDLESS"; stageNo: number | null; displayId: string | null;
+  status: "PLAYING" | "FINISHED" | "ABORTED";
+  score: number; survivalMs: number; killCount: number; reachedWave: number; cleared: boolean;
+  rewardCell: number; expGained: number; startedAt: string; endedAt: string | null;
 }
-interface RankingEntry { rank: number; userId: number; nickname: string; title: Title | null; bestScore: number; }
+interface RankingEntry { rank: number; userId: number; nickname: string; title: Title | null; bestScore: number; achievedAt: string; }
+interface Ranking { weekStart: string; myRank: RankingEntry | null; entries: RankingEntry[]; }
+
 interface Mail {
   mailId: number; sourceType: string; title: string; cellAmount: number; titleReward: Title | null;
   createdAt: string; claimedAt: string | null; expiresAt: string | null;

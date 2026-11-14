@@ -11,9 +11,12 @@
     "db:reset": "node scripts/dbInit.js --reset",
     "batch:daily": "node src/batch/dailyHunger.js",
     "batch:weekly": "node src/batch/weeklyRanking.js",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "dev:grant-pet": "node scripts/devGrantPet.js"
   },
-  "engines": { "node": ">=20" },
+  "engines": {
+    "node": ">=20"
+  },
   "dependencies": {
     "bcryptjs": "^2.4.3",
     "cors": "^2.8.5",

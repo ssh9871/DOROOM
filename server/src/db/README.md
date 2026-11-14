@@ -11,6 +11,7 @@ PostgreSQL 16 기준. Docker로 DB와 pgAdmin을 한 번에 띄웁니다 (실행
 | `erd/ERD_v2_1_overview.png` | 테이블·관계만 (발표용) |
 | `erd/ERD_v2_2_detail.png` | 컬럼·타입·키까지 (개발용) |
 | `erd/make_erd_v2.py` | 실행 중인 DB에서 ERD PNG를 다시 뽑는 스크립트 (Graphviz 필요) |
+| `migrations/001_minigame_stages_and_upgrades.sql` | 11/14 미니게임 연동: 스테이지 12개, 강화 코드 테이블, 랭킹 뷰(KST·동점). `npm run db:init` 이 자동 적용 |
 | `docker-compose.yml` | PostgreSQL 16 + pgAdmin |
 
 설계 설명·바뀐 이유·아직 정할 것: `docs/db/DB_v2_changes_and_decisions.md`

@@ -1,20 +1,21 @@
-// 🟥 미니게임 — 주간 랭킹 (명세서 5장) — v_weekly_ranking 뷰 사용
-// 담당 팀이 채웁니다. 각 핸들러는 명세서(docs/db/API_spec_v1.md)의 요청/응답 형태를 따르고,
-// 셀·경험치·아이템 변동은 services/ 의 공통 함수만 사용합니다.
+// 🟥 미니게임 — 주간 랭킹 (v_weekly_ranking). 무한모드 · 정상 종료 · 사람당 최고 점수 1개, 동점은 먼저 달성한 쪽이 위
 import { Router } from 'express';
+import { pool } from '../db/pool.js';
 import { ok } from '../utils/response.js';
 import { AppError } from '../utils/errors.js';
 import { wrap } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
-// import { pool, withTransaction } from '../db/pool.js';
-// import { addCell } from '../services/cellService.js';
-// import { addPetExp, getPetCombatStats, assertPetCanSortie, getPet } from '../services/petService.js';
-// import { addItem, useItem, addEquipment, useEquipment, getInventory } from '../services/inventoryService.js';
+import { getRanking } from '../services/gameService.js';
 
 const router = Router();
 router.use(requireAuth);
-const todo = wrap(async () => { throw new AppError('NOT_IMPLEMENTED'); });
 
-router.get('/', todo);
+// GET /ranking?weekStart=YYYY-MM-DD&limit=10 → Ranking  (weekStart 없으면 이번 주, 한국시간 월요일 기준)
+router.get('/', wrap(async (req, res) => {
+  const { weekStart } = req.query;
+  if (weekStart && !/^\d{4}-\d{2}-\d{2}$/.test(weekStart)) throw new AppError('VALIDATION', 'weekStart 는 YYYY-MM-DD');
+  const limit = Math.min(Math.max(Number(req.query.limit) || 10, 1), 100);
+  ok(res, await getRanking(pool, req.userId, { weekStart, limit }));
+}));
 
 export default router;
