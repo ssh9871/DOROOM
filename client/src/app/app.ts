@@ -3,6 +3,8 @@ import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
 import { openGame } from '../ui/gameScreen';
 import { formatWeek } from '../ui/weeklyRanking';
+import { clearAccount, restoreAccount, type AccountUser } from '../api/auth';
+import { showAccountScreen } from '../ui/accountScreen';
 
 export function startApp() {
   const root = document.querySelector<HTMLDivElement>('#app');
@@ -10,15 +12,25 @@ export function startApp() {
   let cleanup: (() => void) | undefined;
   let version = 0;
   const petState = createPetState();
+  let account: AccountUser | null = null;
 
   async function render() {
+    if (!account) return;
     const currentVersion = ++version;
     cleanup?.();
     cleanup = undefined;
     const page = location.hash.slice(1);
+    const loginId = account.loginId;
     const inRoom = page === 'room' || page === 'pet-room';
     document.body.classList.toggle('in-room', inRoom);
-    root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', petState.user) : page === 'minigames' ? gamesScreen(petState.user) : homeScreen(petState.user);
+    root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', loginId) : page === 'minigames' ? gamesScreen(loginId, petState.user.cells) : homeScreen(account);
+    root!.querySelector('#change-account')?.addEventListener('click', () => {
+      cleanup?.();
+      cleanup = undefined;
+      clearAccount();
+      account = null;
+      selectAccount();
+    });
     window.scrollTo(0, 0);
     // 미니게임 화면일 경우 버튼 이벤트 연결
     if (page === 'minigames') {
@@ -229,6 +241,18 @@ export function startApp() {
     }
   }
 
+  function selectAccount() {
+    void showAccountScreen(root!, (user) => {
+      account = user;
+      void render();
+    });
+  }
+
   window.addEventListener('hashchange', render);
-  void render();
+  root.innerHTML = '<main class="account-page"><p role="status">로그인 상태를 확인하는 중이에요.</p></main>';
+  void restoreAccount().then((user) => {
+    account = user;
+    if (account) void render();
+    else selectAccount();
+  });
 }

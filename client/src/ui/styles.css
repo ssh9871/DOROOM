@@ -162,7 +162,13 @@ h2 {
   align-items:center;
   gap:10px;
   font-weight:400;
-  color:#c2c6c5
+  color:#e7e9eb;
+  background:transparent;
+  white-space:nowrap
+}
+
+.profile:hover {
+  background:#24313c
 }
 
 .profile-avatar {
@@ -215,6 +221,60 @@ h2 {
 
 .navigation a:hover {
   color:#84b9ff
+}
+
+.account-page {
+  min-height:100dvh;
+  display:grid;
+  place-items:center;
+  padding:24px
+}
+
+.account-panel {
+  width:min(100%,440px);
+  padding:clamp(24px,6vw,40px);
+  background:#202527
+}
+
+.account-panel h1 {
+  margin:24px 0 8px;
+  font-size:26px
+}
+
+.account-panel p {
+  color:#aeb7bc
+}
+
+#account-list {
+  display:grid;
+  gap:10px;
+  margin:20px 0 0;
+  padding:0;
+  list-style:none
+}
+
+.account-button {
+  width:100%;
+  padding:14px 16px;
+  font-weight:700;
+  color:inherit;
+  background:#1b2937;
+  border:1px solid #41678c;
+  border-radius:12px;
+  text-align:left;
+  overflow-wrap:anywhere
+}
+
+.account-button[hidden] {
+  display:none
+}
+
+.account-button:hover:enabled {
+  background:#243d55
+}
+
+.account-button:disabled {
+  opacity:.6
 }
 
 .dashboard {
@@ -1374,7 +1434,7 @@ kbd {
   .profile-bar {
     gap:6px
   }
-  .mail,.profile .chevron,.level {
+  .mail,.level {
     display:none
   }
   .profile {
@@ -1488,9 +1548,6 @@ kbd {
   }
   .navigation {
     gap:24px
-  }
-  .navigation .nav-item:nth-child(4) {
-    display:none
   }
   .search-decoration {
     width:130px;
