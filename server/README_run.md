@@ -21,6 +21,7 @@ copy .env.example .env        (Mac/Linux: cp .env.example .env)
 npm run db:init
 ```
 `.env`는 그대로 써도 됨 (docker-compose의 doroom/doroom 계정과 맞춰져 있음).
+기존 `.env`에서는 `DEMO_ACCOUNT_LOGIN=true`를 추가하면 첫 화면에서 `kim`·`lee`를 선택할 수 있습니다. 계정 선택 API는 옵션이 켜진 로컬 개발 서버에서만 동작합니다.
 `db:init`은 테이블이 없을 때만 schema_v2 + seed를 넣고, `migrations/00N_*.sql`이 있으면 순서대로 적용. 다시 만들고 싶으면 `npm run db:reset`.
 
 ## 4. 서버 실행

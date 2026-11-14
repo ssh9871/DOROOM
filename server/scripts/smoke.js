@@ -25,6 +25,19 @@ const api = async (method, path, body, token) => {
 const health = await api('GET', '/health');
 check('GET /health', health.ok);
 
+if (process.env.DEMO_ACCOUNT_LOGIN === 'true' && process.env.NODE_ENV !== 'production') {
+  const accounts = await api('GET', '/auth/demo-accounts');
+  check('테스트 계정 목록', accounts.ok && accounts.data.map(account => account.loginId).join(',') === 'kim,lee');
+  for (const account of accounts.data ?? []) {
+    const login = await api('POST', '/auth/demo-login', { loginId: account.loginId });
+    const profile = await api('GET', '/me', null, login.data?.token);
+    check(`테스트 계정 로그인 및 /me: ${account.loginId}`,
+      login.ok && profile.ok && profile.data.nickname === account.nickname && profile.data.userId === login.data.user.userId);
+  }
+  const unavailable = await api('POST', '/auth/demo-login', { loginId: 'unknown' });
+  check('목록 밖 계정의 간편 로그인 차단', !unavailable.ok && unavailable.error.code === 'NOT_FOUND');
+}
+
 const su = await api('POST', '/auth/signup', { loginId: `smoke_${tag}`, password: 'pw1234', nickname: `연기${tag.slice(-4)}` });
 check('POST /auth/signup', su.ok && su.data.userId > 0, JSON.stringify(su.data ?? su.error));
 const userId = su.data?.userId;
