@@ -236,11 +236,12 @@ async function buildResult(client, userId, run, { replayed, firstClearBonus }) {
   };
 }
 
-/** 중도 포기: PLAYING 인 내 출동만 ABORTED. 이미 끝난 판이면 ALREADY_FINISHED */
+/** 중도 포기: 이미 중단한 판은 같은 runId 응답, 정상 종료한 판은 ALREADY_FINISHED */
 export async function abortGame(client, userId, runId) {
   const { rows } = await client.query(
     'SELECT status FROM game_run WHERE run_id = $1 AND user_id = $2 FOR UPDATE', [runId, userId]);
   if (!rows.length) throw new AppError('NOT_FOUND', '출동 기록 없음');
+  if (rows[0].status === 'ABORTED') return { runId };
   if (rows[0].status !== 'PLAYING') throw new AppError('ALREADY_FINISHED');
   await client.query(`UPDATE game_run SET status = 'ABORTED', ended_at = now() WHERE run_id = $1`, [runId]);
   return { runId };

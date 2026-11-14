@@ -14,7 +14,7 @@ export type BattlePet = {
   ability: { id: SkillId; name: string; effectValue: number; cooldownSec: number };
 };
 
-// shortcut: local snapshot of pet_species, ability and stage-one stats, replace when DB pet loading is wired.
+// Local sprites and fallback base stats. Official runs take combat stats from GameStart.
 export const battlePets: readonly BattlePet[] = [
   { id: 'pet-dog-001', speciesId: 1, name: '강아지', grade: 'NORMAL', icon: '🐶',
     attack: 10, maxHp: 100, moveSpeed: 100, bulletSpeed: 100,

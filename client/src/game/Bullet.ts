@@ -36,53 +36,30 @@ export class EnemyBullet extends Bullet {
     x: number, y: number, vx: number, vy: number,
     public readonly radius = ENEMY_BULLET.radius,
     private readonly shot: EnemyShot = 'basic',
-    private readonly stops = false,
-    private pattern?: 'split' | 'ricochet',
+    private readonly motion?: { acceleration: number; maxSpeed: number; redirectAt?: number },
+    readonly wide = false,
+    private firstStepDelay = 0,
   ) { super(x, y, vx, vy); }
 
-  override update(dt: number, width: number, height: number): void {
-    const previous = this.age;
+  override update(dt: number, width: number, height: number, target?: Readonly<{ x: number; y: number }>): void {
+    dt = Math.max(0, dt - this.firstStepDelay);
+    this.firstStepDelay = 0;
+    const previousAge = this.age;
     this.age += dt;
-    const paused = this.stops ? Math.max(0, Math.min(this.age, 1.2) - Math.max(previous, 0.65)) : 0;
-    super.update(dt - paused, width, height);
-    if (this.alive && this.pattern === 'ricochet' && (this.x < this.radius || this.x > width - this.radius)) {
-      const wall = this.x < this.radius ? this.radius : width - this.radius;
-      this.x = 2 * wall - this.x;
-      this.vx = -this.vx;
-      this.pattern = undefined;
+    if (this.motion) {
+      const { acceleration, maxSpeed, redirectAt = 0 } = this.motion;
+      let angle = Math.atan2(this.vx, this.vy);
+      if (target && previousAge < redirectAt && this.age >= redirectAt)
+        angle = Math.atan2(target.x - this.x, target.y - this.y);
+      const acceleratingTime = Math.max(0, this.age - Math.max(previousAge, redirectAt));
+      const speed = Math.min(maxSpeed, Math.hypot(this.vx, this.vy) + acceleration * acceleratingTime);
+      this.vx = Math.sin(angle) * speed;
+      this.vy = Math.cos(angle) * speed;
     }
-  }
-
-  split(room: number): EnemyBullet[] {
-    if (!this.alive || this.pattern !== 'split' || this.age < 0.9) return [];
-    this.pattern = undefined;
-    if (room < 1) return [];
-    this.alive = false;
-    const speed = Math.hypot(this.vx, this.vy);
-    const direction = Math.atan2(this.vx, this.vy);
-    return [-1, 1].map(side => {
-      const angle = direction + side * Math.PI / 9;
-      return new EnemyBullet(this.x, this.y, Math.sin(angle) * speed, Math.cos(angle) * speed);
-    });
+    super.update(dt, width, height);
   }
 
   draw(ctx: CanvasRenderingContext2D): void {
     drawSprite(ctx, `projectiles/enemy-${this.shot}`, this.x, this.y, { scale: ENEMY_BULLET.width / 8 });
-    if (!this.stops || this.age < 0.85 || this.age >= 1.2) return;
-    const angle = Math.atan2(this.vy, this.vx);
-    ctx.save();
-    ctx.translate(this.x, this.y);
-    ctx.rotate(angle);
-    ctx.strokeStyle = '#fff';
-    ctx.lineWidth = 2;
-    ctx.beginPath();
-    ctx.arc(0, 0, this.radius + 3, 0, Math.PI * 2);
-    ctx.moveTo(9, 0);
-    ctx.lineTo(16, 0);
-    ctx.lineTo(12, -3);
-    ctx.moveTo(16, 0);
-    ctx.lineTo(12, 3);
-    ctx.stroke();
-    ctx.restore();
   }
 }

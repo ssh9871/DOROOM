@@ -36,7 +36,7 @@ for (let stage = 0; stage < stages.length; stage++) {
   assert.equal(game.elapsed, 0);
   assert.equal(game.canSkipToBoss, false);
   assert.equal(game.bossTimeLeft, stage === 0 ? undefined : 50);
-  assert.ok(new Set(stages[stage].boss).size >= 2);
+  assert.ok(stages[stage].boss.length);
   game.areaTime += 20;
   game.step(0);
   assert.deepEqual(game.enemies.slice(1).map(enemy => enemy.sprite),
@@ -48,7 +48,7 @@ start({ mode: 'endless' });
 assert.equal(game.canSkipToBoss, false);
 
 for (const step of [1 / 30, dt, 1 / 144, 0.1]) {
-  const boss = new Enemy('boss', '1-1', 240, ['fan']);
+  const boss = new Enemy('boss', '1-1', 240, ['aimed-fan']);
   for (let time = 0; time < 16; time += step) {
     const previousX = boss.x;
     const entering = boss.y < 140;
@@ -117,15 +117,13 @@ assert.ok(game.playerBullets[0].width > new PlayerBullet(0, 0).width);
 game.pet.update(5, game.player);
 assert.equal(game.player.fireRate, 1);
 
-const stopped = new EnemyBullet(100, 100, 100, 0, 5, 'basic', true);
-stopped.update(0.65, 480, 720);
-near(stopped.x, 165);
-stopped.update(0.5, 480, 720);
-near(stopped.x, 165);
-stopped.update(0.15, 480, 720);
-near(stopped.x, 175);
+const accelerating = new EnemyBullet(100, 100, 100, 0, 6, 'basic', { acceleration: 40, maxSpeed: 124 });
+accelerating.update(0.5, 480, 720);
+near(accelerating.vx, 120);
+accelerating.update(0.5, 480, 720);
+near(accelerating.vx, 124);
 start({ skill: 'clear' });
-game.enemyBullets.push(stopped);
+game.enemyBullets.push(accelerating);
 assert.equal(game.activatePetSkill(), true);
 game.step(dt);
 assert.equal(game.enemyBullets.length, 0);
@@ -141,7 +139,7 @@ for (const boundary of [60, 120, 180, 240]) {
 game.enemies = game.enemies.filter(enemy => enemy.kind === 'elite');
 game.waveTimer = 0;
 game.step(dt);
-assert.equal(game.enemies.filter(enemy => enemy.kind === 'normal').length, 2);
+assert.equal(game.enemies.filter(enemy => enemy.kind === 'normal').length, 10);
 game.enemyBullets.push(new EnemyBullet(200, 200, 0, 0));
 game.areaTime = 300 - dt;
 game.elapsed = 300 - dt;
@@ -187,145 +185,226 @@ for (let i = 0; i < 110 / dt && game.state === 'playing'; i++) {
 assert.equal(results.at(-1).outcome, 'clear');
 assert.ok(results.at(-1).seconds > 300);
 
-for (let stage = 0; stage < stages.length; stage++) {
-  start({ stage });
-  game.step(dt);
-  assert.equal(game.enemies.length, 2);
-  game.enemies = [];
-  game.eliteIndex = 4;
-  game.areaTime = 299;
-  game.waveTimer = 0;
-  game.step(dt);
-  assert.equal(game.enemies.filter(enemy => enemy.kind === 'normal').length, 2, stages[stage].id);
-}
-assert.ok(game.enemies[0].maxHp > new Enemy('normal', game.enemies[0].sprite, 240).maxHp);
-
-const shooter = new Enemy('normal', 'patrol-drone', 240);
-shooter.y = 35;
-const shots = [];
-shooter.update(1.9, { x: 240, y: 600 }, 10, shot => shots.push(shot), () => {}, () => {});
-assert.equal(shots.length, 1, 'First shot fires as soon as the normal attack timer expires');
-assert.equal(shots[0].radius, 6);
-
-function bossVolleys(attack, seconds) {
-  const boss = new Enemy('boss', '2-3', 240, [attack]);
-  boss.y = 140;
-  const volleys = [];
-  for (let time = 0; time < seconds; time += dt) {
-    const shots = [];
-    boss.update(dt, { x: 300, y: 600 }, 180, shot => shots.push(shot), () => {}, () => {});
-    if (shots.length) volleys.push(shots);
-  }
-  return volleys;
-}
-
-const patternSpeeds = [
-  'single', 'diagonal', 'burst', 'fan', 'fixed', 'fixed-double', 'cross', 'radial',
-  'stop', 'dash', 'return-dash', 'sweep', 'spray', 'barrier', 'reinforce', 'crane',
-  'twin-radial', 'open-fan', 'split', 'corridor', 'ricochet',
-].map(attack => {
-  const shots = bossVolleys(attack, 7).flat();
-  assert.ok(shots.length > 1, attack);
-  const speed = Math.hypot(shots[0].vx, shots[0].vy);
-  for (const shot of shots) near(Math.hypot(shot.vx, shot.vy), speed);
-  return Math.round(speed);
-});
-assert.equal(new Set(patternSpeeds).size, patternSpeeds.length, 'Each attack has a distinct speed');
-
-const [openFirst, openSecond] = bossVolleys('open-fan', 2);
-assert.equal(openFirst.length, 4);
-assert.ok(openFirst.every(shot => Math.abs(shot.vx) > 10));
-assert.deepEqual(openFirst.map(shot => shot.vx), openSecond.map(shot => shot.vx));
-
-const walls = bossVolleys('corridor', 7);
-const gap = volley => [24, 72, 120, 168, 216, 264, 312, 360, 408, 456]
-  .filter(x => !volley.some(shot => shot.x === x));
-assert.deepEqual(walls.slice(0, 6).map(gap), [[168, 216], [216, 264], [264, 312], [264, 312], [216, 264], [168, 216]]);
-
-const [splitVolley] = bossVolleys('split', 1);
-const parent = splitVolley[1];
-parent.update(0.8, WORLD.width, WORLD.height);
-assert.deepEqual(parent.split(1), []);
-parent.update(0.11, WORLD.width, WORLD.height);
-const children = parent.split(1);
-assert.equal(parent.alive, false);
-assert.equal(children.length, 2);
-assert.ok(children[0].vx < 0 && children[1].vx > 0);
-for (const child of children) near(Math.hypot(child.vx, child.vy), Math.hypot(parent.vx, parent.vy));
-assert.deepEqual(parent.split(1), []);
-const unsplit = splitVolley[0];
-unsplit.update(1, WORLD.width, WORLD.height);
-assert.deepEqual(unsplit.split(0), []);
-assert.ok(unsplit.alive);
-
-const [bounceVolley] = bossVolleys('ricochet', 1);
-const bouncing = bounceVolley[0];
-while (bouncing.vx < 0 && bouncing.alive) bouncing.update(dt, WORLD.width, WORLD.height);
-assert.ok(bouncing.alive && bouncing.vx > 0);
-while (bouncing.alive) bouncing.update(dt, WORLD.width, WORLD.height);
-assert.ok(bouncing.vx > 0, 'Only one side-wall reflection');
-
-const [frozen, aimed] = bossVolleys('stop', 2);
-assert.equal(frozen.length, 8);
-assert.equal(aimed.length, 1);
-assert.equal(aimed[0].shot, 'aimed');
-
-// Aim is measured from the nozzle that actually fired, after any movement.
-for (const [id, attack, shotType, count] of [
-  ['2-1', 'return-dash', 'aimed', 3], ['2-2', 'spray', 'spray', 5],
-  ['2-3', 'fan', 'aimed', 3], ['3-1', 'barrier', 'aimed', 1],
-]) {
-  const boss = new Enemy('boss', id, 240, [attack]);
-  const volleys = [];
-  for (let time = 0; time < 8; time += dt) {
-    const target = { x: 280 + time * 14, y: 610 };
-    const volley = [];
-    boss.update(dt, target, 180, shot => volley.push(shot), () => {}, () => {});
-    if (volley[0]?.shot === shotType) volleys.push({ volley, target });
-  }
-  assert.ok(volleys.length > 0, id);
-  for (const { volley, target } of volleys.slice(0, attack === 'spray' ? 2 : 1)) {
-    assert.equal(volley.length, count);
-    const center = volley[Math.floor(count / 2)];
-    const speed = Math.hypot(center.vx, center.vy);
-    const distance = Math.hypot(target.x - center.x, target.y - center.y);
-    near(center.vx / speed, (target.x - center.x) / distance);
-    near(center.vy / speed, (target.y - center.y) / distance);
-  }
-  if (attack === 'spray') assert.notEqual(volleys[0].volley[0].x, volleys[1].volley[0].x, 'Both nozzles fire');
-}
-
+const waveCounts = [
+  [10], [4], [4], [10, 4], [2], [10, 2], [5, 6], [2, 3], [5, 3], [12, 12, 4], [3, 3, 3], [12, 12, 4, 3, 5, 4, 3],
+];
 let previousWaveDelay = Infinity;
 for (let stage = 0; stage < stages.length; stage++) {
   start({ stage });
   game.step(dt);
   assert.ok(game.waveTimer < previousWaveDelay, 'Each stage shortens the wave interval');
   previousWaveDelay = game.waveTimer;
-}
-start();
-const patrol = new Enemy('normal', 'patrol-drone', 100);
-patrol.y = 35;
-game.enemies = [patrol];
-game.waveTimer = 10;
-game.step(1.4);
-assert.equal(game.enemyBullets.length, 1);
-near(Math.hypot(game.enemyBullets[0].vx, game.enemyBullets[0].vy), 119);
-
-for (const sprite of ['patrol-drone', 'mower', 'guard', 'carrier', 'sprayer', 'armored-worker', 'small-worker', 'relay']) {
-  const enemy = new Enemy('normal', sprite, 105);
-  enemy.update(0.5, { x: 240, y: 600 }, 180, () => {}, () => {}, () => {});
-  assert.ok(Math.abs(enemy.x - 105) > 10, sprite + ' moves laterally');
-}
-for (const [sprite, attack] of [['patrol', 'dash'], ['irrigation', 'return-dash'], ['maintenance', 'reinforce'], ['hub', 'sweep']]) {
-  const persistent = new Enemy('elite', sprite, 110, [attack]);
-  const emitted = [];
-  for (let i = 0; i < 65 / dt; i++) {
-    persistent.update(dt, { x: 240, y: 600 }, 180, shot => emitted.push(shot), () => {}, () => {});
-    assert.ok(persistent.y <= WORLD.height - persistent.height / 2);
+  assert.equal(game.enemies.length, waveCounts[stage][0]);
+  game.eliteIndex = 4;
+  game.areaTime = 299;
+  for (let i = 1; i <= stages[stage].wave.length; i++) {
+    game.enemies = [];
+    game.waveTimer = 0;
+    game.step(0);
+    const wave = i % stages[stage].wave.length;
+    assert.equal(game.enemies.length, waveCounts[stage][wave], stages[stage].id);
+    assert.ok(game.enemies.every(enemy => enemy.sprite === stages[stage].wave[wave]));
   }
-  assert.ok(persistent.alive && emitted.length > 10);
-  if (sprite === 'hub') assert.ok(emitted.some(shot => shot.vy < 0), 'Hub elite fires radial volleys');
 }
+assert.ok(game.enemies[0].maxHp > new Enemy('normal', game.enemies[0].sprite, 240).maxHp);
+
+start({ stage: 9 });
+game.step(0);
+assert.equal(game.enemies.length, 12);
+game.waveTimer = 0;
+game.step(0);
+assert.equal(game.enemies.length, 12, 'A crowded screen defers the entire next wave');
+assert.equal(game.reachedWave, 1);
+game.enemies = [];
+game.waveTimer = 0;
+game.step(0);
+assert.deepEqual(new Set(game.enemies.map(enemy => enemy.sprite)), new Set(['carrier']));
+
+function sample(enemy) {
+  let time = 0;
+  const target = { x: 240, y: 600 };
+  const volleys = [];
+  const tick = (room = 180) => {
+    const shots = [];
+    time += dt;
+    enemy.update(dt, target, room, shot => shots.push(shot), () => false, () => {}, 1, 1);
+    if (shots.length) volleys.push({ time, shots });
+  };
+  const take = (n, room) => {
+    const start = time;
+    while (volleys.length < n && time - start < 15) tick(room);
+    assert.equal(volleys.length, n, enemy.nextAttack);
+    return volleys.map(volley => volley.shots);
+  };
+  return { take, tick, target, volleys };
+}
+
+for (const sprite of ['patrol-drone', 'carrier']) {
+  const enemy = new Enemy('normal', sprite, 100);
+  const run = sample(enemy);
+  let furthest = enemy.x;
+  for (let i = 0; i < 240; i++) {
+    run.tick();
+    furthest = Math.max(furthest, enemy.x);
+  }
+  assert.equal(run.volleys.length, 0, sprite);
+  assert.ok(furthest > 130, sprite + ' moves laterally');
+}
+
+for (const [sprite, count, stage] of [
+  ['mower', 4], ['small-worker', 8], ['sprayer', 10], ['guard', 3], ['relay', 1],
+  ['armored-worker', 1], ['armored-worker', 18, '4-2'],
+]) {
+  const enemy = new Enemy('normal', sprite, 240, [], 1, undefined, { stage });
+  const [shots] = sample(enemy).take(1);
+  assert.equal(shots.length, count, sprite);
+  assert.ok(shots.every(shot => shot.radius === 6));
+  if (sprite === 'sprayer') {
+    const speed = shot => Math.hypot(shot.vx, shot.vy);
+    assert.ok(speed(shots[0]) < speed(shots[1]));
+    near(Math.atan2(shots[0].vx, shots[0].vy), Math.atan2(shots[1].vx, shots[1].vy));
+  }
+}
+
+const bossAttack = attack => sample(new Enemy('boss', '2-3', 240, [attack]));
+const angle = shot => Math.atan2(shot.vx, shot.vy) * 180 / Math.PI;
+const speed = shot => Math.hypot(shot.vx, shot.vy);
+const offset = bossAttack('offset-fan');
+const rings = offset.take(6, 0);
+assert.equal(rings.flat().length, 108, 'Boss fires the complete pattern on a full screen');
+for (const [step, shots] of rings.entries()) {
+  const shift = step >= 3 ? 10 : 0;
+  const headings = shots.map(shot => (Math.round(angle(shot)) + 360) % 360);
+  assert.deepEqual(headings, Array.from({ length: 18 }, (_, i) => 20 * i + shift));
+  for (const shot of shots) near(speed(shot), step < 3 ? 178 : 178 * 1.15);
+}
+for (let i = 1; i < rings.length; i++) near(offset.volleys[i].time - offset.volleys[i - 1].time, 0.15);
+
+start();
+game.skipToBoss();
+game.boss.y = 140;
+game.playerBullets = [];
+for (let i = 0; i < 85; i++) game.step(dt);
+assert.ok(game.enemyBullets.length > 72, 'Stage boss is not throttled by the old cap');
+
+const stream = bossAttack('aimed-stream');
+const [aimed] = stream.take(1);
+near(speed(aimed[1]), 215);
+stream.target.x = 430;
+assert.ok(stream.take(10).every(shots => shots.length === 3));
+near(angle(stream.volleys.at(-1).shots[1]), angle(aimed[1]));
+const firstBoss = sample(new Enemy('boss', '1-1', 240, ['offset-fan']));
+firstBoss.take(7);
+near(firstBoss.volleys[6].time - firstBoss.volleys[5].time, 1.2);
+
+const scheduledShots = run => run.volleys.flatMap(({ time, shots }) =>
+  shots.map(shot => ({ shot, firedAt: time - dt + shot.firstStepDelay })));
+const arcBoss = new Enemy('boss', '2-3', 240, ['arc-sweep']);
+const arc = sample(arcBoss);
+while (arcBoss.index === 0 && arcBoss.age < 5) arc.tick();
+const arcShots = scheduledShots(arc);
+assert.equal(arcShots.length, 74);
+for (const [i, { shot, firedAt }] of arcShots.entries()) {
+  near(speed(shot), 300);
+  near(firedAt - arcShots[0].firedAt, i * 0.01);
+  near(angle(shot) - angle(arcShots[0].shot), 5 * (i < 37 ? i : 73 - i));
+}
+const ringBoss = new Enemy('boss', '3-3', 240, ['ring-sweep']);
+const ringRun = sample(ringBoss);
+while (ringBoss.index === 0 && ringBoss.age < 8) ringRun.tick(0);
+const ring = scheduledShots(ringRun);
+assert.equal(ring.length, 144);
+for (let i = 0; i < ring.length; i += 2) {
+  const { shot, firedAt } = ring[i];
+  const second = ring[i + 1];
+  near(speed(shot), 200);
+  near(speed(second.shot), 300);
+  near(angle(shot), angle(second.shot));
+  near(firedAt, second.firedAt);
+  near(firedAt - ring[0].firedAt, i / 2 * 0.01);
+  near((angle(shot) - angle(ring[0].shot) + 360) % 360, i / 2 * 5);
+}
+const lateShot = ring[2].shot;
+const initialX = lateShot.x;
+const initialY = lateShot.y;
+const firstStepDelay = lateShot.firstStepDelay;
+lateShot.update(dt, WORLD.width, WORLD.height);
+near(Math.hypot(lateShot.x - initialX, lateShot.y - initialY), 200 * (dt - firstStepDelay));
+const scatter = bossAttack('scatter');
+const scatterShots = scatter.take(14, 0);
+assert.deepEqual(scatterShots.map(shots => shots.length), [...Array(6).fill(72), ...Array(8).fill(71)]);
+for (const shot of scatterShots.flat()) near(speed(shot), 250);
+assert.ok(scatter.volleys.at(-1).time - scatter.volleys[0].time >= 3.12);
+assert.equal(scatter.volleys.flatMap(volley => volley.shots).length, 1000);
+
+const [turning] = bossAttack('redirect-fan').take(1);
+assert.equal(turning.length, 7);
+const redirected = turning[3];
+const aimRight = { x: 400, y: 500 };
+const initialAngle = angle(redirected);
+redirected.update(1.99, WORLD.width, WORLD.height, aimRight);
+near(speed(redirected), 164);
+near(angle(redirected), initialAngle);
+const expectedAngle = Math.atan2(aimRight.x - redirected.x, aimRight.y - redirected.y) * 180 / Math.PI;
+redirected.update(0.02, WORLD.width, WORLD.height, aimRight);
+near(angle(redirected), expectedAngle);
+redirected.update(0.1, WORLD.width, WORLD.height, { x: 50, y: 500 });
+near(angle(redirected), expectedAngle);
+near(speed(redirected), 164 + 340 * 0.11);
+redirected.update(1, WORLD.width, WORLD.height, aimRight);
+near(speed(redirected), 470);
+
+const laser = new Enemy('boss', '2-2', 240, ['laser']);
+const beam = sample(laser);
+for (let i = 0; laser.volley === 0 && i < 240; i++) beam.tick();
+for (let shot = 0; shot < 3; shot++) {
+  assert.equal(laser.volley, 2 * shot + 1);
+  const beamTarget = { ...beam.target };
+  assert.equal(laser.laserHits(beamTarget, 5), false, 'Telegraph deals no damage');
+  beam.target.x += 80;
+  for (let i = 0; i < 29; i++) beam.tick();
+  assert.equal(laser.laserHits(beamTarget, 5), false);
+  beam.tick();
+  assert.equal(laser.volley, 2 * shot + 2);
+  assert.ok(laser.laserHits(beamTarget, 5), 'Laser locks the telegraphed line');
+  assert.equal(laser.laserHits(beam.target, 5), false);
+  const strokeLines = [];
+  laser.draw({
+    save() {}, restore() {}, beginPath() {}, moveTo() {}, lineTo(x, y) { strokeLines.push([x, y]); },
+    stroke() { assert.equal(this.lineWidth, 24); },
+  });
+  assert.equal(strokeLines.length, 1);
+  for (let i = 0; i < 21; i++) beam.tick();
+}
+assert.equal(laser.index, 1, 'One attack completes after three beams');
+assert.equal(laser.volley, 0);
+assert.equal(laser.laserHits(beam.target, 5), false);
+
+start({ stage: 11 });
+game.skipToBoss();
+game.boss.y = 140;
+game.boss.hp = game.boss.maxHp / 2;
+game.enemyBullets.push(new EnemyBullet(200, 200, 0, 0));
+game.step(0);
+assert.equal(game.enemyBullets.length, 0);
+assert.equal(game.boss.nextAttack, 'laser');
+game.step(0.79);
+assert.equal(game.boss.volley, 0);
+game.step(0.01);
+assert.equal(game.boss.volley, 1);
+
+start({ stage: 10 });
+game.step(0);
+assert.equal(game.enemies.filter(enemy => enemy.isWideShooter).length, 3);
+const wideSources = new Set();
+for (let i = 0; i < 24 / dt && game.enemies.some(enemy => enemy.sprite === 'sprayer'); i++) {
+  game.player.hp = game.player.maxHp;
+  game.player.x = 15;
+  game.step(dt);
+  for (const enemy of game.enemies) if (enemy.timeSinceAttack === 0) wideSources.add(enemy);
+  assert.ok(game.enemyBullets.filter(shot => shot.wide).length <= 18);
+}
+assert.equal(wideSources.size, 3, 'Each wide shooter gets a turn');
 
 start({ stage: 1 });
 game.areaTime = game.elapsed = 300;
@@ -369,7 +448,7 @@ for (const [index, pet] of battlePets.entries()) {
 }
 
 start();
-const elite = new Enemy('elite', 'patrol', 240, ['dash']);
+const elite = new Enemy('elite', 'patrol', 240, ['square']);
 elite.y = 300;
 elite.hp = 1;
 game.enemies.push(elite);

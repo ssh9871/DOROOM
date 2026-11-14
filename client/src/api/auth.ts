@@ -10,8 +10,10 @@ type ApiResult<T> = { ok: true; data: T } | { ok: false; error: { message: strin
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const sessionKey = 'doroom.auth-token';
+let activeToken: string | null = null;
 
 function storeToken(token: string | null) {
+  activeToken = token;
   try {
     if (token) sessionStorage.setItem(sessionKey, token);
     else sessionStorage.removeItem(sessionKey);
@@ -44,7 +46,11 @@ export async function loginWithDemoAccount(loginId: string) {
 export async function restoreAccount() {
   try {
     const token = sessionStorage.getItem(sessionKey);
-    if (token) return await request<AccountUser>('/me', { headers: { Authorization: `Bearer ${token}` } });
+    if (token) {
+      const user = await request<AccountUser>('/me', { headers: { Authorization: `Bearer ${token}` } });
+      storeToken(token);
+      return user;
+    }
   } catch {
     storeToken(null);
   }
@@ -53,4 +59,13 @@ export async function restoreAccount() {
 
 export function clearAccount() {
   storeToken(null);
+}
+
+export function authenticatedRequest() {
+  const token = activeToken;
+  return <T>(path: string, options?: RequestInit) => {
+    const headers = new Headers(options?.headers);
+    headers.set('Authorization', `Bearer ${token}`);
+    return request<T>(path, { ...options, headers });
+  };
 }

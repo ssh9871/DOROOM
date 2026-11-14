@@ -2,7 +2,7 @@ import { Background } from './Background';
 import { EnemyBullet, PlayerBullet } from './Bullet';
 import { BOSS_AT, ELITES, PLAYER, WORLD } from './config';
 import { Effects } from './Effects';
-import { Enemy } from './Enemy';
+import { Enemy, isWideAttack, normalAttack, waveSize } from './Enemy';
 import { Input } from './Input';
 import { Pet } from './Pet';
 import { Player } from './Player';
@@ -14,7 +14,9 @@ import { circleRectOverlap, circlesOverlap, rectsOverlap } from './utils';
 export type GameState = 'ready' | 'playing' | 'paused' | 'gameover';
 const FIXED_DT = 1 / 60;
 const MAX_ENEMIES = 24;
-const STAGE_NORMAL_LIMIT = 8;
+const STAGE_NORMAL_LIMIT = 18;
+const SHOOTER_LIMIT = 6;
+const WIDE_SHOOTER_LIMIT = 3;
 const MAX_SHOTS = 180;
 const EPSILON = 1e-8;
 
@@ -52,6 +54,8 @@ export class Game {
   private area = 0;
   private eliteIndex = 0;
   private waveIndex = 0;
+  private enterFromLeft = true;
+  private reachedWave = 0;
   private waveTimer = 0;
   private bossPhase = false;
   private bossSummoned = false;
@@ -113,6 +117,7 @@ export class Game {
     this.setup = { ...setup, levels: { ...setup.levels } };
     this.id = id;
     this.area = this.elapsed = this.purified = 0;
+    this.reachedWave = 0;
     this.bossPractice = false;
     this.player.reset(this.setup.levels, setup.petLevel, setup.pet);
     this.pet.reset(this.player, setup.skill, setup.pet);
@@ -144,6 +149,7 @@ export class Game {
     if (!this.setup || !this.canSkipToBoss) return;
     this.bossPractice = true;
     this.elapsed = this.purified = 0;
+    this.reachedWave = 0;
     this.player.reset(this.setup.levels, this.setup.petLevel, this.setup.pet);
     this.pet.reset(this.player, this.setup.skill, this.setup.pet);
     this.resetArea();
@@ -164,6 +170,7 @@ export class Game {
 
   private resetArea(): void {
     this.areaTime = this.eliteIndex = this.waveIndex = this.waveTimer = 0;
+    this.enterFromLeft = true;
     this.enemies = [];
     this.playerBullets = [];
     this.enemyBullets = [];
@@ -221,20 +228,26 @@ export class Game {
     const pace = isStage ? 0.7 + this.setup.stage * 0.01
       : 1 + Math.min(0.5, Math.floor(this.area / 4) * 0.1);
     const bulletSpeed = isStage ? 0.7 + this.setup.stage * 0.014 : 1;
-    for (const enemy of this.enemies.slice()) {
-      const shotLimit = isStage ? (enemy.kind === 'boss' ? 72 : 48) : MAX_SHOTS;
+    // Give waiting shooters a turn even when a wide volley takes longer than their cooldown.
+    const enemies = this.enemies.slice().sort((a, b) =>
+      Number(b.kind === 'boss') - Number(a.kind === 'boss') || b.timeSinceAttack - a.timeSinceAttack);
+    let activeShooters = enemies.filter(enemy => enemy.isShooter && enemy.isFiring).length;
+    let wideInFlight = this.enemyBullets.some(bullet => bullet.wide);
+    for (const enemy of enemies) {
+      const shotLimit = isStage ? 48 : MAX_SHOTS;
+      const shooting = enemy.isFiring;
+      const canStart = (!enemy.isShooter || activeShooters < 2)
+        && (!isWideAttack(enemy.nextAttack) || !wideInFlight);
       enemy.update(dt, this.player, shotLimit - this.enemyBullets.length,
-        bullet => this.enemyBullets.push(bullet), () => this.reinforce(enemy.x),
-        () => { this.enemyBullets = []; }, pace, bulletSpeed);
+        bullet => {
+          this.enemyBullets.push(bullet);
+          if (bullet.wide) wideInFlight = true;
+        }, () => this.reinforce(enemy.x), () => { this.enemyBullets = []; }, pace, bulletSpeed, canStart);
+      if (enemy.isShooter && !shooting && enemy.timeSinceAttack === 0) activeShooters++;
     }
 
     for (const bullet of this.playerBullets) bullet.update(dt, WORLD.width, WORLD.height);
-    const followUp: EnemyBullet[] = [];
-    for (const bullet of this.enemyBullets) {
-      bullet.update(dt, WORLD.width, WORLD.height);
-      followUp.push(...bullet.split((isStage ? 72 : MAX_SHOTS) - this.enemyBullets.length - followUp.length));
-    }
-    this.enemyBullets.push(...followUp);
+    for (const bullet of this.enemyBullets) bullet.update(dt, WORLD.width, WORLD.height, this.player);
     this.handleCollisions();
     this.updatePotions(dt);
     this.enemies = this.enemies.filter(enemy => enemy.alive);
@@ -266,7 +279,7 @@ export class Game {
     if (this.bossPhase) return;
     if (this.areaTime + EPSILON >= BOSS_AT) {
       const bossHp = stageIndex === 0 ? 160 : 375 + (this.setup?.mode === 'stage' ? 32 : 46) * (stageIndex - 1);
-      this.enemies = [new Enemy('boss', stage.id, WORLD.width / 2, stage.boss, difficulty, bossHp)];
+      this.enemies = [new Enemy('boss', stage.id, WORLD.width / 2, stage.boss, difficulty, bossHp, { stage: stage.id })];
       this.enemyBullets = [];
       this.bossPhase = true;
       return;
@@ -275,38 +288,56 @@ export class Game {
     if (next !== undefined && this.areaTime + EPSILON >= next) {
       const lane = [85, 395, 145, 335][this.eliteIndex]!;
       const health = difficulty * (this.setup?.mode === 'stage' ? 1 + stageIndex * 0.045 : 1);
-      this.enemies.push(new Enemy('elite', eliteSprites[stage.zone]!, lane, stage.elite, health));
+      this.enemies.push(new Enemy('elite', eliteSprites[stage.zone]!, lane, stage.elite, health, undefined, { stage: stage.id }));
       this.eliteIndex++;
     }
     this.waveTimer -= dt;
+    if (this.waveTimer > EPSILON) return;
     const isStage = this.setup?.mode === 'stage';
-    const waveSize = isStage ? 2 : stage.zone < 2 ? 3 : 4;
-    const capacity = isStage ? STAGE_NORMAL_LIMIT - this.enemies.filter(enemy => enemy.kind === 'normal').length
-      : MAX_ENEMIES - ELITES.length + this.eliteIndex - this.enemies.length;
-    const count = Math.min(waveSize, capacity);
-    if (this.waveTimer > 0 || count <= 0) return;
-    const lane = WORLD.width / waveSize;
-    const health = difficulty * (1 + stageIndex * (isStage ? 0.075 : 0.035));
-    for (let i = 0; i < count; i++) {
-      const sprite = stage.wave[this.waveIndex++ % stage.wave.length]!;
-      const x = lane * (i + 0.5) + (Math.random() - 0.5) * lane * 0.35;
-      this.enemies.push(new Enemy('normal', sprite, x, [], health));
-    }
     this.waveTimer = isStage
       ? 3.4 - stageIndex * 0.065 - this.areaTime / 2400
       : Math.max(1.05, 1.85 - stage.zone * 0.14 - this.areaTime / 1800);
+    const sprite = stage.wave[this.waveIndex % stage.wave.length]!;
+    const attack = normalAttack(sprite, stage.id);
+    const count = waveSize(sprite, stage.id, stage.zone);
+    if (!this.canSpawnNormals(count, attack ? count : 0, isWideAttack(attack) ? count : 0)) return;
+
+    const health = difficulty * (1 + stageIndex * (isStage ? 0.075 : 0.035));
+    const left = this.enterFromLeft;
+    for (let i = 0; i < count; i++) {
+      const x = attack ? WORLD.width * (i + 0.5) / count : (left ? 60 : 420) + (i % 2) * (left ? 62 : -62);
+      const offset = attack ? 0 : Math.floor(i / 2) * 55 + (i % 2) * 23;
+      this.enemies.push(new Enemy('normal', sprite, x, [], health, undefined,
+        { stage: stage.id, delay: i * 0.6, offset }));
+    }
+    if (!attack) this.enterFromLeft = !left;
+    this.waveIndex++;
+    this.reachedWave++;
   }
 
-  private reinforce(x: number, sprites: readonly string[] = ['small-worker']): void {
+  private canSpawnNormals(count: number, shooters: number, wide: number): boolean {
     const live = this.enemies.filter(enemy => enemy.alive);
-    const workers = live.filter(enemy => enemy.sprite === 'small-worker').length;
+    const capacity = this.setup?.mode === 'stage'
+      ? STAGE_NORMAL_LIMIT - live.filter(enemy => enemy.kind === 'normal').length
+      : MAX_ENEMIES - (this.bossPhase ? 0 : ELITES.length - this.eliteIndex) - live.length;
+    return count <= capacity
+      && shooters + live.filter(enemy => enemy.isShooter).length <= SHOOTER_LIMIT
+      && wide + live.filter(enemy => enemy.isWideShooter).length <= WIDE_SHOOTER_LIMIT;
+  }
+
+  private reinforce(x: number, sprites: readonly string[] = ['small-worker']): boolean {
     const stage = this.setup?.mode === 'stage' ? this.setup.stage : undefined;
-    const capacity = stage === undefined ? MAX_ENEMIES - (ELITES.length - this.eliteIndex) - live.length
-      : STAGE_NORMAL_LIMIT - live.filter(enemy => enemy.kind === 'normal').length;
-    const count = Math.min(2, 4 - workers, capacity);
     const health = stage === undefined ? 1 : 1 + stage * 0.075;
-    for (let i = 0; i < count; i++) this.enemies.push(new Enemy('normal', sprites[i % sprites.length]!,
-      Math.min(440, Math.max(40, x + (i === 0 ? -90 : 90))), [], health));
+    let spawned = false;
+    for (let i = 0; i < 2; i++) {
+      const sprite = sprites[i % sprites.length]!;
+      const attack = normalAttack(sprite, this.stage.id);
+      if (!this.canSpawnNormals(1, Number(!!attack), Number(isWideAttack(attack)))) break;
+      this.enemies.push(new Enemy('normal', sprite, Math.min(440, Math.max(40, x + (i === 0 ? -90 : 90))),
+        [], health, undefined, { stage: this.stage.id, delay: i * 0.6 }));
+      spawned = true;
+    }
+    return spawned;
   }
 
   private handleCollisions(): void {
@@ -330,7 +361,9 @@ export class Game {
     resolveEnemyBulletHits(player, this.enemyBullets,
       bullet => this.effects.play('hit-spark', bullet.x, bullet.y, 0.4, 24), () => this.damagePlayer());
     for (const enemy of this.enemies) {
-      if (enemy.alive && circleRectOverlap(player.x, player.y, player.hitRadius, enemy.x, enemy.y, enemy.width, enemy.height)) this.damagePlayer();
+      if (enemy.laserHits(player, player.hitRadius) || (enemy.alive
+        && circleRectOverlap(player.x, player.y, player.hitRadius, enemy.x, enemy.y, enemy.width, enemy.height)))
+        this.damagePlayer();
     }
   }
 
@@ -357,7 +390,7 @@ export class Game {
     this.render();
     const seconds = Math.round(this.elapsed * 1e8) / 1e8;
     this.finish({ id: this.id, mode: this.setup.mode, stage: this.setup.stage, outcome, seconds,
-      purified: this.purified, completedAt: Date.now(), bossTimeout, bossPractice: this.bossPractice });
+      purified: this.purified, reachedWave: this.reachedWave, completedAt: Date.now(), bossTimeout, bossPractice: this.bossPractice });
   }
 
   private render(): void {

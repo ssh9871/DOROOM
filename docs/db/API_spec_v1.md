@@ -175,7 +175,7 @@ addEquipment(client, userId, equipmentId, qty)
 | GET /stages | 12개 지점(1-1 ~ 4-3) + 내 해금·클리어 상태 + 무한모드 해금 여부 | → StageList = {stages: Stage[], endlessUnlocked} |
 | POST /game/start | 게임 시작 (출전 검증 → 능력치·강화 반환 → game_run 생성) | {mode: "STAGE" 또는 "ENDLESS", stageNo?, userPetId, buffItemIds?, practice?} → GameStart |
 | POST /game/:runId/finish | 게임 종료 + 보상 (서버가 점수 계산) | {survivalMs, killCount, reachedWave, cleared, reviveUsed} → GameResult |
-| POST /game/:runId/abort | 중도 포기 (보상 없음) | → {runId} |
+| POST /game/:runId/abort | 중도 포기 (보상 없음) | → {runId}. 이미 중단한 출동에도 같은 응답 |
 | GET /game/history | 내 전적 | ?mode=ENDLESS&limit=20&offset=0 → GameRun[] |
 | GET /ranking | 주간 랭킹 | ?weekStart=YYYY-MM-DD&limit=10 → Ranking = {weekStart, myRank, entries} |
 

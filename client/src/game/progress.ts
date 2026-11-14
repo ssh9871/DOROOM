@@ -25,7 +25,8 @@ export const petDamageBonus = (level: number) => Math.min(3, Math.max(0, level -
 export type RunSetup = { mode: 'stage' | 'endless'; stage: number; levels: Levels; skill: SkillId; petLevel?: number; pet?: BattlePet };
 export type RunOutcome = 'clear' | 'return' | 'abort';
 export type RunResult = Pick<RunSetup, 'mode' | 'stage'> & {
-  id: string; outcome: RunOutcome; seconds: number; purified: number; completedAt: number; bossTimeout?: boolean; bossPractice?: boolean;
+  id: string; outcome: RunOutcome; seconds: number; purified: number; completedAt: number;
+  reachedWave?: number; bossTimeout?: boolean; bossPractice?: boolean;
 };
 export type RankedRun = { id: string; score: number; completedAt: number };
 

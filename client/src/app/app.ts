@@ -2,7 +2,8 @@ import { connectPetShop } from '../ui/petShop';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
 import { openGame } from '../ui/gameScreen';
-import { formatWeek } from '../ui/weeklyRanking';
+import { formatRankingWeek } from '../ui/weeklyRanking';
+import { minigameApi } from '../api/minigame';
 import { clearAccount, restoreAccount, type AccountUser } from '../api/auth';
 import { showAccountScreen } from '../ui/accountScreen';
 
@@ -23,7 +24,7 @@ export function startApp() {
     const loginId = account.loginId;
     const inRoom = page === 'room' || page === 'pet-room';
     document.body.classList.toggle('in-room', inRoom);
-    root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', loginId) : page === 'minigames' ? gamesScreen(loginId, petState.user.cells) : homeScreen(account);
+    root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', loginId) : page === 'minigames' ? gamesScreen(loginId, account.cellBalance) : homeScreen(account);
     root!.querySelector('#change-account')?.addEventListener('click', () => {
       cleanup?.();
       cleanup = undefined;
@@ -34,6 +35,17 @@ export function startApp() {
     window.scrollTo(0, 0);
     // 미니게임 화면일 경우 버튼 이벤트 연결
     if (page === 'minigames') {
+      const api = minigameApi();
+      const signedIn = account;
+      const updateBalance = (balance: number) => {
+        if (account !== signedIn) return;
+        signedIn.cellBalance = balance;
+        const wallet = root!.querySelector('.wallet');
+        if (!wallet) return;
+        const cells = balance.toLocaleString();
+        wallet.innerHTML = `<span aria-hidden="true">⬡</span> ${cells}`;
+        wallet.setAttribute('aria-label', `보유 ${cells} 셀`);
+      };
       const playBtn = root!.querySelector<HTMLButtonElement>('#start-minigame-btn');
       const leaderboardBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-btn');
       const leaderboardModal = root!.querySelector<HTMLDivElement>('#leaderboard-modal');
@@ -43,35 +55,42 @@ export function startApp() {
       const leaderboardBestScore = root!.querySelector<HTMLElement>('#leaderboard-best-score');
       const leaderboardWeek = root!.querySelector<HTMLElement>('#leaderboard-week');
 
-      const renderLeaderboard = (): void => {
+      const renderLeaderboard = async (): Promise<void> => {
         if (!leaderboardList || !leaderboardBestScore) return;
-        const { start, end, rows } = petState.weeklyRanking();
-        if (leaderboardWeek) leaderboardWeek.textContent = `이 브라우저의 기록 · ${formatWeek(start, end)}`;
-        leaderboardBestScore.textContent = rows.length > 0
-          ? `${rows[0]!.score.toLocaleString()}점`
-          : '기록 없음';
+        leaderboardBestScore.textContent = '불러오는 중…';
         leaderboardList.replaceChildren();
+        if (leaderboardWeek) leaderboardWeek.textContent = '';
+        try {
+          const { weekStart, myRank, entries: rows } = await api.ranking();
+          if (currentVersion !== version) return;
+          if (leaderboardWeek) leaderboardWeek.textContent = formatRankingWeek(weekStart);
+          leaderboardBestScore.textContent = myRank
+            ? `${myRank.bestScore.toLocaleString()}점 · ${myRank.rank}위`
+            : '기록 없음';
 
-        if (rows.length === 0) {
-          const empty = document.createElement('li');
-          empty.className = 'leaderboard-empty';
-          empty.textContent = '이번 주 플레이 기록이 없어요.';
-          leaderboardList.appendChild(empty);
-          return;
+          if (rows.length === 0) {
+            const empty = document.createElement('li');
+            empty.className = 'leaderboard-empty';
+            empty.textContent = '이번 주 플레이 기록이 없어요.';
+            leaderboardList.appendChild(empty);
+            return;
+          }
+
+          rows.forEach(({ bestScore, nickname, rank: position }) => {
+            const item = document.createElement('li');
+            item.className = 'leaderboard-item';
+            const rank = document.createElement('span');
+            rank.className = 'leaderboard-rank';
+            rank.textContent = `${position}위 · ${nickname}`;
+            const value = document.createElement('strong');
+            value.className = 'leaderboard-score';
+            value.textContent = `${bestScore.toLocaleString()}점`;
+            item.append(rank, value);
+            leaderboardList.appendChild(item);
+          });
+        } catch {
+          if (currentVersion === version) leaderboardBestScore.textContent = '순위를 불러오지 못했어요.';
         }
-
-        rows.forEach(({ score, nickname }, index) => {
-          const item = document.createElement('li');
-          item.className = 'leaderboard-item';
-          const rank = document.createElement('span');
-          rank.className = 'leaderboard-rank';
-          rank.textContent = `${index + 1}위 · ${nickname}`;
-          const value = document.createElement('strong');
-          value.className = 'leaderboard-score';
-          value.textContent = `${score.toLocaleString()}점`;
-          item.append(rank, value);
-          leaderboardList.appendChild(item);
-        });
       };
 
       const closeLeaderboard = (): void => {
@@ -84,7 +103,7 @@ export function startApp() {
 
       const openLeaderboard = (): void => {
         if (!leaderboardModal) return;
-        renderLeaderboard();
+        void renderLeaderboard();
         leaderboardModal.hidden = false;
         leaderboardModal.setAttribute('aria-hidden', 'false');
         document.body.classList.add('leaderboard-open');
@@ -102,12 +121,6 @@ export function startApp() {
         const closeGame = () => {
           disposeGame?.();
           disposeGame = undefined;
-          const wallet = root!.querySelector('.wallet');
-          if (wallet) {
-            const cells = petState.user.cells.toLocaleString();
-            wallet.innerHTML = `<span aria-hidden="true">⬡</span> ${cells}`;
-            wallet.setAttribute('aria-label', `보유 ${cells} 셀`);
-          }
           playBtn.focus();
         };
 
@@ -120,7 +133,7 @@ export function startApp() {
         document.addEventListener('keydown', onLeaderboardKeyDown);
 
         playBtn.addEventListener('click', () => {
-          if (!disposeGame) disposeGame = openGame(petState, closeGame);
+          if (!disposeGame) disposeGame = openGame(closeGame, updateBalance);
         });
 
         cleanup = () => {
