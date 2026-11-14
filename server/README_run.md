@@ -24,6 +24,13 @@ npm run db:init
 기존 `.env`에서는 `DEMO_ACCOUNT_LOGIN=true`를 추가하면 첫 화면에서 `kim`·`lee`를 선택할 수 있습니다. 계정 선택 API는 옵션이 켜진 로컬 개발 서버에서만 동작합니다.
 `db:init`은 테이블이 없을 때만 schema_v2 + seed를 넣고, `migrations/00N_*.sql`이 있으면 순서대로 적용. 다시 만들고 싶으면 `npm run db:reset`.
 
+### 3-1. 이미 DB가 있는 사람 (11/14 이후)
+```
+npm run db:init
+```
+만 다시 실행하면 `migrations/001_…sql` 이 적용됨 (스테이지 12개, 미니게임 강화 코드, 랭킹 뷰). 두 번 실행해도 안전.
+테스트 펫이 필요하면 `npm run dev:grant-pet -- lee 2` (lee 에게 2번 종 지급, userPetId 출력).
+
 ## 4. 서버 실행
 ```
 npm run dev
@@ -57,17 +64,20 @@ server/
 │  ├─ services/             🟦 공통 함수 — 셀·경험치·아이템은 여기만 통해서
 │  │  ├─ cellService.js     addCell, getBalance, listTransactions
 │  │  ├─ petService.js      addPetExp, getPetCombatStats, assertPetCanSortie, getPet, toPetDto
-│  │  └─ inventoryService.js addItem, useItem, addEquipment, useEquipment, getInventory
+│  │  ├─ inventoryService.js addItem, useItem, addEquipment, useEquipment, getInventory
+│  │  └─ gameService.js     🟥 listStages, startGame, finishGame, abortGame, listHistory, getRanking, listStatUpgrades, buyStatUpgrade
 │  ├─ routes/
 │  │  ├─ auth.js, me.js, mails.js            🟦 완성
 │  │  ├─ pets.js, petSpecies.js, shop.js,    🟩 도로팜 — 스텁 (501). 채우면 됨
-│  │  │  inventory.js(완성), gacha.js, equipments.js, statUpgrades.js
-│  │  └─ stages.js, game.js, ranking.js      🟥 미니게임 — 스텁 (501)
+│  │  │  inventory.js(완성), gacha.js, equipments.js
+│  │  ├─ statUpgrades.js                     영구 강화 (완성, 펫용·미니게임용 공용)
+│  │  └─ stages.js, game.js, ranking.js      🟥 미니게임 — 완성 (11/14)
 │  └─ batch/
 │     ├─ dailyHunger.js     npm run batch:daily
 │     └─ weeklyRanking.js   npm run batch:weekly
 └─ scripts/
    ├─ dbInit.js
+   ├─ devGrantPet.js       테스트 계정에 펫 지급
    └─ smoke.js
 shared/types.ts              DTO 타입 (클라이언트·서버 공용)
 ```

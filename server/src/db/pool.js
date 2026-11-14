@@ -2,6 +2,10 @@
 import pg from 'pg';
 import 'dotenv/config';
 
+// pg 기본값 보정: BIGINT(run_id, tx_id 등)는 문자열 대신 숫자로, DATE(week_start)는 Date 객체 대신 'YYYY-MM-DD' 문자열로
+pg.types.setTypeParser(20, (v) => (v === null ? null : Number(v)));   // int8
+pg.types.setTypeParser(1082, (v) => v);                               // date
+
 export const pool = new pg.Pool({
   connectionString: process.env.DATABASE_URL,
 });

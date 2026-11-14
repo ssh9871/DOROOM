@@ -21,7 +21,7 @@ export type ApiResponse<T> =
 
 // ── 회원·재화·칭호 ─────────────────────────────────────────────
 export interface Title { titleId: number; code: string; name: string; }
-export interface User { userId: number; nickname: string; cellBalance: number; equippedTitle: Title | null; }
+export interface User { userId: number; loginId: string; nickname: string; cellBalance: number; equippedTitle: Title | null; }
 export interface CellTransaction {
   txId: number; amount: number; balanceAfter: number; reason: string; createdAt: string;
 }
@@ -61,7 +61,14 @@ export interface Equipment {
 }
 export interface UserEquipment { equipment: Equipment; quantity: number; }
 export interface Inventory { items: UserItem[]; equipments: UserEquipment[]; }
-export interface StatUpgrade { statCode: string; level: number; valueBonus: number; nextCellCost: number | null; }
+/** 영구 강화 한 종류의 현재 상태. valueBonus 는 현재 단계까지의 누적 효과 (unit 이 PERCENT 면 %, FLAT 이면 수치) */
+export interface StatUpgrade {
+  statCode: string; name: string;
+  unit: 'FLAT' | 'PERCENT';
+  scope: 'PET' | 'MINIGAME';          // PET: 펫 전투 능력치에 합산됨 / MINIGAME: GameStart.upgrades 로 전달, 게임 안에서 적용
+  level: number; maxLevel: number; valueBonus: number; nextCellCost: number | null;
+}
+export interface StatUpgradeBuyResult { upgrade: StatUpgrade; balance: number; }
 
 // ── 뽑기 ──────────────────────────────────────────────────────
 export interface GachaPool {
@@ -76,25 +83,39 @@ export interface GachaResult {
 export interface GachaLog { gachaId: number; poolId: number; species?: PetSpecies; equipment?: Equipment; createdAt: string; }
 
 // ── 게임·랭킹 ─────────────────────────────────────────────────
+/** 작전 지점. displayId "w-s" (1-1 … 4-3) ↔ stageNo = (w-1)*3 + s */
 export interface Stage {
-  stageNo: number; name: string; bossName: string; briefing: string;
-  unlocked: boolean; cleared: boolean; firstClearRewardCell: number; repeatRewardCell: number;
+  stageNo: number; displayId: string; worldNo: number; subNo: number; isBoss: boolean;
+  name: string; bossName: string; briefing: string;
+  clearBonusScore: number; firstClearRewardCell: number; repeatRewardCell: number;
+  unlocked: boolean; cleared: boolean;
 }
-export interface GameStartRequest { mode: GameMode; stageNo?: number; userPetId: number; buffItemIds?: number[]; }
+export interface StageList { stages: Stage[]; endlessUnlocked: boolean; }   // GET /stages
+
+export interface GameStartRequest {
+  mode: GameMode; stageNo?: number; userPetId: number; buffItemIds?: number[];
+  practice?: boolean;   // true 면 기록·보상·랭킹 제외 (디버그 연습). runId 는 null
+}
 export interface GameStart {
-  runId: number; mode: GameMode; stageNo: number | null;
-  pet: Pet; combatStats: CombatStats; appliedBuffs: Item[];
+  runId: number | null; practice: boolean; mode: GameMode; stageNo: number | null; stage: Stage | null;
+  pet: Pet; combatStats: CombatStats; upgrades: StatUpgrade[]; appliedBuffs: Item[];
 }
 export interface GameFinishRequest { survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; reviveUsed: boolean; }
 export interface GameResult {
-  runId: number; score: number; rewardCell: number; firstClearBonus: number; expGained: number;
-  pet: Pet; balance: number; newRank: number | null;
+  runId: number;
+  replayed: boolean;     // true 면 이미 확정된 결과를 다시 돌려준 것 (보상 재지급 없음)
+  mode: GameMode; stageNo: number | null;
+  score: number; rewardCell: number; firstClearBonus: number; expGained: number; cleared: boolean;
+  pet: Pet | null; balance: number; newRank: number | null;
 }
+export type GameRunStatus = 'PLAYING' | 'FINISHED' | 'ABORTED';
 export interface GameRun {
-  runId: number; mode: GameMode; stageNo: number | null; score: number;
-  survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; startedAt: string;
+  runId: number; mode: GameMode; stageNo: number | null; displayId: string | null; status: GameRunStatus;
+  score: number; survivalMs: number; killCount: number; reachedWave: number; cleared: boolean;
+  rewardCell: number; expGained: number; startedAt: string; endedAt: string | null;
 }
-export interface RankingEntry { rank: number; userId: number; nickname: string; title: Title | null; bestScore: number; }
+export interface GameHistoryQuery { mode?: GameMode; limit?: number; offset?: number; }  // GET /game/history
+export interface RankingEntry { rank: number; userId: number; nickname: string; title: Title | null; bestScore: number; achievedAt: string; }
 export interface Ranking { weekStart: string; myRank: RankingEntry | null; entries: RankingEntry[]; }
 
 // ── 우편 ──────────────────────────────────────────────────────
