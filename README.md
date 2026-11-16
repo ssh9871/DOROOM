@@ -63,17 +63,50 @@ Doroom/
 
 ## 실행 방법
 
-Docker Desktop의 Linux 컨테이너 엔진을 실행합니다. [서버 실행 방법](server/README_run.md)에 따라 DB를 초기화하고 로컬 API를 `http://localhost:3000`에서 실행합니다. 기존 `server/.env`에는 `DEMO_ACCOUNT_LOGIN=true`를 추가한 뒤 서버를 재시작합니다.
+Node.js 24를 준비하고 Docker Desktop의 Linux 컨테이너 엔진이 시작될 때까지 기다립니다. 아래 명령은 Windows PowerShell 기준입니다. 최초 실행에는 이미지와 패키지를 내려받을 인터넷 연결이 필요합니다.
 
-프로젝트 루트에서 다음 명령을 실행합니다.
+### 처음 한 번 설정
+
+프로젝트 루트에서 서버 패키지를 설치하고 환경 파일을 준비합니다.
 
 ```powershell
-docker compose up --build -d
+cd server
+npm install
+if (-not (Test-Path .env)) { Copy-Item .env.example .env }
+cd ..
 ```
 
-브라우저에서 [http://127.0.0.1:8080](http://127.0.0.1:8080)을 열고 `kim` 또는 `lee`를 선택합니다. 대시보드나 미니게임 목록의 오른쪽 위 **계정 변경**으로 다른 계정을 선택할 수 있습니다.
+기존 `server/.env`를 사용하는 경우 테스트 계정을 선택할 수 있도록 `DEMO_ACCOUNT_LOGIN=true`를 설정합니다. 선택한 PostgreSQL 서버와 `DATABASE_URL`이 일치해야 합니다.
 
-Docker 내부의 빌드 과정은 `npm ci → 이동 검사 → 타입 검사 → Vite 빌드` 순서입니다. 실행 시에는 nginx 웹 컨테이너 하나가 빌드된 정적 파일을 제공하며, 별도의 Vite 개발 서버는 실행하지 않습니다. 최초 실행에는 이미지와 패키지를 다운로드할 인터넷 연결이 필요합니다.
+프로젝트 루트에서 PostgreSQL을 시작합니다.
+
+```powershell
+docker compose -f server/src/db/docker-compose.yml up -d db
+docker compose -f server/src/db/docker-compose.yml exec db pg_isready -h 127.0.0.1 -U doroom -d doroom
+```
+
+`accepting connections`가 표시될 때까지 `pg_isready` 명령을 다시 실행한 뒤 초기 데이터를 준비합니다. 기존 DB에 새 마이그레이션을 적용할 때도 `npm run db:init`을 다시 실행합니다. [서버 실행 방법](server/README_run.md)
+
+```powershell
+cd server
+npm run db:init
+cd ..
+```
+
+### DB, 웹, API 실행
+
+초기 설정을 마친 뒤에는 프로젝트 루트에서 아래 순서로 실행합니다.
+
+```powershell
+docker compose -f server/src/db/docker-compose.yml up -d db
+docker compose up -d --build
+cd server
+npm run start
+```
+
+API가 실행 중인 터미널은 열어 둡니다. [API 상태 확인](http://localhost:3000/health)에서 `"ok": true`가 표시되면 API가 PostgreSQL에 연결된 상태입니다. 브라우저에서 [http://127.0.0.1:8080](http://127.0.0.1:8080)을 열고 `kim` 또는 `lee`를 선택합니다. 대시보드나 미니게임 목록의 오른쪽 위 **계정 변경**으로 다른 계정을 선택할 수 있습니다.
+
+Docker 내부의 웹 빌드 과정은 `npm ci → 테스트 → 타입 검사 → Vite 빌드` 순서입니다. nginx 웹 컨테이너가 빌드된 정적 파일을 제공합니다. 다음 명령은 별도 터미널의 프로젝트 루트에서 실행합니다.
 
 ```powershell
 # 실행 상태 확인
@@ -82,10 +115,11 @@ docker compose ps
 # 로그 확인
 docker compose logs web
 
-# 종료
+# 웹과 DB 종료 (API 터미널에서는 Ctrl+C)
 docker compose down
+docker compose -f server/src/db/docker-compose.yml stop db
 
-# 기존 이미지 재실행
+# 기존 웹 이미지 재실행
 docker compose up -d
 ```
 
