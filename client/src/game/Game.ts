@@ -15,6 +15,7 @@ export type GameState = 'ready' | 'playing' | 'paused' | 'gameover';
 const FIXED_DT = 1 / 60;
 /** 탭 전환 등으로 프레임이 크게 밀렸을 때 따라잡기 상한(초) */
 const MAX_FRAME_TIME = 0.1;
+const SCORE_HISTORY_KEY = 'dorobus_scores';
 
 const FONT = "'Apple SD Gothic Neo', 'Malgun Gothic', 'Noto Sans KR', 'Noto Sans CJK KR', sans-serif";
 
@@ -78,6 +79,7 @@ export class Game {
   private accumulator = 0;
   private shake = 0;
   private running = false;
+  private scoreSaved = false;
   private settingsOpen = false;
 
   constructor(
@@ -107,6 +109,9 @@ export class Game {
   }
 
   stop(): void {
+    if (this.state === 'playing' || this.state === 'paused' || this.state === 'gameover') {
+      this.saveScoreHistory();
+    }
     this.running = false;
     cancelAnimationFrame(this.rafId);
     this.input.detach();
@@ -115,6 +120,7 @@ export class Game {
   }
 
   returnToMain(): void {
+    if (this.state !== 'ready') this.saveScoreHistory();
     this.resetRun();
     this.state = 'ready';
     this.updateUi();
@@ -148,6 +154,7 @@ export class Game {
   private resetRun(): void {
     this.input.clear();
     this.accumulator = 0;
+    this.scoreSaved = false;
     this.score = 0;
     this.elapsed = 0;
     this.shake = 0;
@@ -334,12 +341,34 @@ export class Game {
   }
 
   private endRun(): void {
+    this.saveScoreHistory();
     this.state = 'gameover';
     this.effects.burst(this.player.x, this.player.y, COLORS.player, 50, 320, 6);
     this.shake = 0.5;
     if (this.score > this.best) {
       this.best = this.score;
       this.saveBest();
+    }
+  }
+
+  /** 한 판의 최종 점수를 로컬 리더보드에 한 번만 추가합니다. */
+  private saveScoreHistory(): void {
+    if (this.scoreSaved) return;
+    this.scoreSaved = true;
+
+    try {
+      const raw = localStorage.getItem(SCORE_HISTORY_KEY);
+      const parsed: unknown = raw ? JSON.parse(raw) : [];
+      const scores: number[] = Array.isArray(parsed)
+        ? parsed.filter((value): value is number => (
+          typeof value === 'number' && Number.isFinite(value) && value >= 0
+        ))
+        : [];
+
+      scores.push(this.score);
+      localStorage.setItem(SCORE_HISTORY_KEY, JSON.stringify(scores.slice(-50)));
+    } catch {
+      // 저장소가 차단된 환경에서도 게임 종료 자체는 정상 동작합니다.
     }
   }
 

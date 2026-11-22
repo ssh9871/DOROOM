@@ -2,6 +2,8 @@ import { connectPetShop } from '../ui/petShop';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
 import { openGame } from '../ui/gameScreen';
+import { clearAccount, restoreAccount, type AccountUser } from '../api/auth';
+import { showAccountScreen } from '../ui/accountScreen';
 
 export function startApp() {
   const root = document.querySelector<HTMLDivElement>('#app');
@@ -9,28 +11,132 @@ export function startApp() {
   let cleanup: (() => void) | undefined;
   let version = 0;
   const petState = createPetState();
+  let account: AccountUser | null = null;
 
   async function render() {
+    if (!account) return;
     const currentVersion = ++version;
     cleanup?.();
     cleanup = undefined;
     const page = location.hash.slice(1);
+    const loginId = account.loginId;
     const inRoom = page === 'room' || page === 'pet-room';
     document.body.classList.toggle('in-room', inRoom);
-    root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', petState.user) : page === 'minigames' ? gamesScreen(petState.user) : homeScreen(petState.user);
+    root!.innerHTML = inRoom ? roomScreen(page === 'pet-room', loginId) : page === 'minigames' ? gamesScreen(loginId, petState.user.cells) : homeScreen(account);
+    root!.querySelector('#change-account')?.addEventListener('click', () => {
+      cleanup?.();
+      cleanup = undefined;
+      clearAccount();
+      account = null;
+      selectAccount();
+    });
     window.scrollTo(0, 0);
+    // 미니게임 화면일 경우 버튼 이벤트 연결
     if (page === 'minigames') {
-      const playBtn = root!.querySelector<HTMLButtonElement>('#start-minigame-btn')!;
-      let disposeGame: (() => void) | undefined;
-      const closeGame = () => {
-        disposeGame?.();
-        disposeGame = undefined;
-        playBtn.focus();
+      const playBtn = root!.querySelector<HTMLButtonElement>('#start-minigame-btn');
+      const leaderboardBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-btn');
+      const leaderboardModal = root!.querySelector<HTMLDivElement>('#leaderboard-modal');
+      const leaderboardCloseBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-close-btn');
+      const leaderboardConfirmBtn = root!.querySelector<HTMLButtonElement>('#leaderboard-confirm-btn');
+      const leaderboardList = root!.querySelector<HTMLOListElement>('#leaderboard-list');
+      const leaderboardBestScore = root!.querySelector<HTMLElement>('#leaderboard-best-score');
+      const scoreHistoryKey = 'dorobus_scores';
+
+      const loadScores = (): number[] => {
+        try {
+          const raw = localStorage.getItem(scoreHistoryKey);
+          const parsed: unknown = raw ? JSON.parse(raw) : [];
+          return Array.isArray(parsed)
+            ? parsed
+              .filter((value): value is number => (
+                typeof value === 'number' && Number.isFinite(value) && value >= 0
+              ))
+              .sort((a, b) => b - a)
+            : [];
+        } catch {
+          return [];
+        }
       };
-      playBtn.addEventListener('click', () => {
-        if (!disposeGame) disposeGame = openGame(petState, closeGame);
-      });
-      cleanup = closeGame;
+
+      const renderLeaderboard = (): void => {
+        if (!leaderboardList || !leaderboardBestScore) return;
+        const scores = loadScores().slice(0, 5);
+        leaderboardBestScore.textContent = scores.length > 0
+          ? `${scores[0].toLocaleString()}점`
+          : '기록 없음';
+        leaderboardList.replaceChildren();
+
+        if (scores.length === 0) {
+          const empty = document.createElement('li');
+          empty.className = 'leaderboard-empty';
+          empty.textContent = '아직 플레이 기록이 없습니다.';
+          leaderboardList.appendChild(empty);
+          return;
+        }
+
+        scores.forEach((score, index) => {
+          const item = document.createElement('li');
+          item.className = 'leaderboard-item';
+          const rank = document.createElement('span');
+          rank.className = 'leaderboard-rank';
+          rank.textContent = `${index + 1}위`;
+          const value = document.createElement('strong');
+          value.className = 'leaderboard-score';
+          value.textContent = `${score.toLocaleString()}점`;
+          item.append(rank, value);
+          leaderboardList.appendChild(item);
+        });
+      };
+
+      const closeLeaderboard = (): void => {
+        if (!leaderboardModal) return;
+        leaderboardModal.hidden = true;
+        leaderboardModal.setAttribute('aria-hidden', 'true');
+        document.body.classList.remove('leaderboard-open');
+        leaderboardBtn?.focus();
+      };
+
+      const openLeaderboard = (): void => {
+        if (!leaderboardModal) return;
+        renderLeaderboard();
+        leaderboardModal.hidden = false;
+        leaderboardModal.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('leaderboard-open');
+        leaderboardCloseBtn?.focus();
+      };
+
+      const onLeaderboardKeyDown = (event: KeyboardEvent): void => {
+        if (event.key === 'Escape' && leaderboardModal && !leaderboardModal.hidden) {
+          closeLeaderboard();
+        }
+      };
+      
+      if (playBtn) {
+        let disposeGame: (() => void) | undefined;
+        const closeGame = () => {
+          disposeGame?.();
+          disposeGame = undefined;
+          playBtn.focus();
+        };
+
+        leaderboardBtn?.addEventListener('click', openLeaderboard);
+        leaderboardCloseBtn?.addEventListener('click', closeLeaderboard);
+        leaderboardConfirmBtn?.addEventListener('click', closeLeaderboard);
+        leaderboardModal?.addEventListener('click', (event) => {
+          if (event.target === leaderboardModal) closeLeaderboard();
+        });
+        document.addEventListener('keydown', onLeaderboardKeyDown);
+
+        playBtn.addEventListener('click', () => {
+          if (!disposeGame) disposeGame = openGame(petState, closeGame);
+        });
+
+        cleanup = () => {
+            closeGame();
+            document.removeEventListener('keydown', onLeaderboardKeyDown);
+            document.body.classList.remove('leaderboard-open');
+        };
+      }
       return;
     }
     if (!inRoom) return;
@@ -143,6 +249,18 @@ export function startApp() {
     }
   }
 
+  function selectAccount() {
+    void showAccountScreen(root!, (user) => {
+      account = user;
+      void render();
+    });
+  }
+
   window.addEventListener('hashchange', render);
-  void render();
+  root.innerHTML = '<main class="account-page"><p role="status">로그인 상태를 확인하는 중이에요.</p></main>';
+  void restoreAccount().then((user) => {
+    account = user;
+    if (account) void render();
+    else selectAccount();
+  });
 }

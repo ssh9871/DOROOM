@@ -133,4 +133,23 @@ assert.equal(input.wasPressed('KeyE'), true);
 handlers.get('blur')();
 assert.equal(input.wasPressed('KeyE'), false, 'Blur clears pending input');
 input.detach();
+const saved = new Map();
+globalThis.localStorage = {
+  getItem: key => saved.get(key) ?? null,
+  setItem: (key, value) => saved.set(key, value),
+};
+const ranked = new Game(canvas, profile);
+ranked.startRun();
+ranked.score = 50;
+ranked.player.lives = 0;
+ranked.step(0);
+ranked.returnToMain();
+ranked.stop();
+assert.deepEqual(JSON.parse(saved.get('dorobus_scores')), [50], 'Game over and main return save once');
+ranked.startRun();
+ranked.score = 25;
+ranked.state = 'paused';
+ranked.returnToMain();
+ranked.stop();
+assert.deepEqual(JSON.parse(saved.get('dorobus_scores')), [50, 25], 'Pause return preserves leaderboard history');
 console.log('Game: manual skill, shield collision, pause, reset, keyboard and cleanup checks passed');
