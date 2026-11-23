@@ -74,6 +74,8 @@ export interface StatUpgradeBuyResult { upgrade: StatUpgrade; balance: number; }
 export interface GachaPool {
   poolId: number; poolType: PoolType; name: string; costCell: number;
   pityCount: number | null; dailyLimit: number | null; drawnToday: number;
+  drawsSinceLegend: number | null;                       // 마지막 LEGEND 이후 뽑은 횟수 (천장 진행도)
+  gradeRates: { grade: Grade; probability: number }[];   // 등급별 확률(%)
   entries: { species?: PetSpecies; equipment?: Equipment; probability: number }[];
 }
 export interface GachaResult {
