@@ -1814,9 +1814,22 @@ body.leaderboard-open { overflow: hidden; }
 .mg-columns { gap: 24px; margin-block: 18px; }
 .mg-upgrade-list, .mg-pet-list { display: grid; gap: 10px; align-content: start; max-height: 380px; overflow: auto; padding: 4px; }
 .mg-upgrade-list button, .mg-pet-list button { text-align: left; }
+.mg-pet-columns { grid-template-columns: minmax(0, 3fr) minmax(0, 4fr); }
+.mg-pet-columns h3 { margin: 0 0 8px; font-size: 18px; }
+.mg-pet-combat { margin-bottom: 16px; }
+.mg-pet-combat dl { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 8px; margin: 0; }
+.mg-pet-combat dl > div { border: 1px solid #507088; border-radius: 8px; padding: 8px 12px; background: #163550; }
+.mg-pet-combat dt { color: #c4dbea; font-size: 14px; }
+.mg-pet-combat dd { margin: 2px 0 0; font-size: 21px; font-weight: 700; font-variant-numeric: tabular-nums; }
 .mg-pet-actions { display: flex; flex-wrap: wrap; gap: 12px; }
 .mg-frame .mg-pet-actions button { display: inline-flex; align-items: center; gap: 6px; height: 48px; padding-block: 0; }
 .mg-pet-actions button img { margin: 0; }
+.mg-gear-slots { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 12px; padding: 0; margin: 18px 0; list-style: none; }
+.mg-gear-slots li { padding: 18px 12px; text-align: center; border: 1px solid #507088; border-radius: 8px; background: #163550; }
+.mg-gear-slots li img { display: block; margin: 0 auto 10px; }
+.mg-gear-slots li h2 { font-size: 20px; margin: 0 0 6px; }
+.mg-gear-slots li p { margin: 0; color: #c4dbea; overflow-wrap: anywhere; }
+.mg-gear-slots + [role="status"]:empty { display: none; }
 .mg-upgrade-list small { display: block; padding-left: 42px; color: #c4dbea; }
 .mg-map-panel { padding: 9px 24px; }
 .mg-map-panel h1 { margin-bottom: 8px; font-size: 30px; }

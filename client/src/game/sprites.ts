@@ -1,4 +1,5 @@
 import { eliteSprites, type Stage } from './stages';
+import { battlePets } from './petCatalog';
 
 type Frame = {
   frame: { x: number; y: number; w: number; h: number };
@@ -38,7 +39,8 @@ export const areaImage = (zone: number, kind: 'map' | 'battle') => `${kind === '
 export function loadBattle(stages: readonly Stage[]) {
   const staticKeys = ['pets/hover-platform', 'projectiles/purification-pulse', 'projectiles/enemy-basic',
     'projectiles/enemy-aimed', 'projectiles/enemy-spray', 'projectiles/hp-potion'];
-  const sheets = ['player/hoverboard', 'player/thruster', 'pets/pet-cat-001', 'enemies/enemy-small-worker',
+  const sheets = ['player/hoverboard', 'player/thruster', 'enemies/enemy-small-worker',
+    ...battlePets.flatMap(pet => pet.sprite ? [pet.sprite] : []),
     ...['bullet-clear', 'enemy-barrier', 'enemy-reinforce', 'heal', 'hit-spark', 'purify', 'rapid-fire', 'shield'].map(id => `effects/fx-${id}`)];
   for (const stage of stages) {
     staticKeys.push(areaImage(stage.zone, 'battle'), `props/${stage.prop}`);

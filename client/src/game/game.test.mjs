@@ -13,7 +13,8 @@ const { Enemy } = await import('./Enemy.ts');
 const { EnemyBullet, PlayerBullet } = await import('./Bullet.ts');
 const { createPetState } = await import('../pets/pets.ts');
 const { baseLevels, scoreRun, weekStart, weeklyRanking } = await import('./progress.ts');
-const { battlePets } = await import('./petCatalog.ts');
+const { battlePets, battlePetStats } = await import('./petCatalog.ts');
+const { petGearLabels, petGearSlots } = await import('../ui/petGear.ts');
 const { canEnterEndless, canEnterStage, endlessStages, stages } = await import('./stages.ts');
 const { WORLD } = await import('./config.ts');
 
@@ -445,6 +446,18 @@ const petStorage = () => ({
 const petState = createPetState(petStorage);
 assert.equal(battlePets.length, 4);
 assert.equal(petState.equipRunPet('unknown-pet'), false);
+const petAssets = new URL('../../public/assets/minigame/', import.meta.url);
+for (const sprite of [...battlePets.flatMap(pet => pet.sprite ? [pet.sprite] : []), 'pets/pet-gumiho-001']) {
+  const sheet = JSON.parse(readFileSync(new URL(`${sprite}.json`, petAssets)));
+  assert.deepEqual(sheet.meta.frameTags.map(({ name, from, to }) => [name, from, to]),
+    [['idle', 0, 2], ['cast', 3, 4]], sprite);
+  assert.equal(sheet.frames.length, 5, sprite);
+  assert.ok(sheet.frames.every(({ frame, duration }) => frame.w === 16 && frame.h === 16 && duration > 0), sprite);
+  for (const [suffix, width] of [['', 80], ['-preview', 16]]) {
+    const png = readFileSync(new URL(`${sprite}${suffix}.png`, petAssets));
+    assert.deepEqual([png.readUInt32BE(16), png.readUInt32BE(20)], [width, 16], sprite);
+  }
+}
 for (const [index, pet] of battlePets.entries()) {
   assert.equal(petState.equipRunPet(pet.id), true);
   assert.equal(createPetState(petStorage).minigame.petId, pet.id);
@@ -462,6 +475,22 @@ for (const [index, pet] of battlePets.entries()) {
   game.step(dt);
   near(game.playerBullets[0].damage, [1, 1, 1.2, 1.5][index]);
 }
+const upgradedPet = { ...battlePets[1], attack: 14, maxHp: 130, moveSpeed: 120, bulletSpeed: 115 };
+const upgradedLevels = { ...baseLevels, damage: 2, 'max-hp': 3 };
+const preview = battlePetStats(upgradedPet, upgradedLevels);
+start({ pet: upgradedPet, levels: upgradedLevels });
+game.step(dt);
+near(preview.damage, 1.68);
+near(game.playerBullets[0].damage, preview.damage);
+assert.equal(game.player.maxHp, 10);
+assert.equal(game.player.maxHp, preview.maxHp);
+assert.equal(preview.moveSpeedScale, 1.2);
+assert.equal(preview.bulletSpeedScale, 1.15);
+assert.deepEqual(petGearSlots.map(slot => slot.label), ['모자', '장갑', '신발']);
+assert.deepEqual(petGearLabels({ equipSlotCount: 2, equipments: [
+  { slotNo: 2, equipment: { name: '운동화' } },
+  { slotNo: 1, equipment: null },
+] }), ['미장착', '잠김', '운동화']);
 
 start();
 const elite = new Enemy('elite', 'patrol', 240, ['square']);

@@ -1,9 +1,11 @@
 import { PET, PLAYER, WORLD } from './config';
-import { battlePetStats, type BattlePet } from './petCatalog';
+import type { BattlePet } from './petCatalog';
 import type { Player } from './Player';
 import { skillCooldown, type SkillId } from './progress';
 import { drawSprite } from './sprites';
 import { clamp, dampFactor } from './utils';
+
+const castDuration = 0.45;
 
 export class Pet {
   x = 0;
@@ -25,11 +27,14 @@ export class Pet {
 
   activate(player: Player, clear: () => void): boolean {
     if (this.cooldownRemaining > 0) return false;
-    if (this.skill === 'heal' && !player.heal(this.pet && battlePetStats(this.pet, PLAYER.maxHp).healHp)) return false;
+    if (this.skill === 'heal') {
+      const healHp = this.pet && Math.max(1, Math.round(PLAYER.maxHp * this.pet.ability.effectValue / 100));
+      if (!player.heal(healHp)) return false;
+    }
     if (this.skill === 'clear') clear();
     this.cooldownRemaining = this.pet?.ability.cooldownSec ?? skillCooldown;
     this.effectRemaining = this.skill === 'shield' ? 3 : this.skill === 'rapid-fire' ? 5 : 0;
-    this.castRemaining = 0.45;
+    this.castRemaining = castDuration;
     this.apply(player);
     return true;
   }
@@ -53,13 +58,15 @@ export class Pet {
 
   draw(ctx: CanvasRenderingContext2D): void {
     drawSprite(ctx, 'pets/hover-platform', this.x, this.y + 11);
-    if (!this.pet || this.pet.id === 'pet-cat-001') {
-      drawSprite(ctx, 'pets/pet-cat-001', this.x, this.y, { tag: this.castRemaining > 0 ? 'cast' : 'idle', time: this.time });
-      return;
-    }
-    // shortcut: use species icons until matching combat sprites are available.
+    const sprite = this.pet ? this.pet.sprite : 'pets/pet-cat-001';
+    const casting = this.castRemaining > 0;
+    if (sprite && drawSprite(ctx, sprite, this.x, this.y, {
+      tag: casting ? 'cast' : 'idle', time: casting ? castDuration - this.castRemaining : this.time,
+    })) return;
+    if (!this.pet) return;
+    // shortcut: use the species icon until its combat sprite is available.
     ctx.save();
-    ctx.font = `${this.castRemaining > 0 ? 32 : 28}px "Segoe UI Emoji", sans-serif`;
+    ctx.font = `${casting ? 32 : 28}px "Segoe UI Emoji", sans-serif`;
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';
     ctx.fillText(this.pet.icon, this.x, this.y);

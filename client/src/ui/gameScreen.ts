@@ -3,9 +3,10 @@ import { MinigameAudio, zoneMusic } from '../game/audio';
 import { asset, areaImage, drawSprite, loadBattle, loadSprite } from '../game/sprites';
 import { endlessStages, operations, speakers, stages, type Dialogue } from '../game/stages';
 import { BOSS_TIME_LIMIT, skills, upgradeIds, upgrades, type Levels, type RunResult, type RunSetup, type SkillId, type UpgradeId } from '../game/progress';
-import { battlePets } from '../game/petCatalog';
+import { battlePets, battlePetStats } from '../game/petCatalog';
 import type { GameResult, Pet, StageList, StatUpgrade } from '../../../shared/types';
 import { minigameApi } from '../api/minigame';
+import { petGearLabels, petGearSlots } from './petGear';
 import { formatRankingWeek } from './weeklyRanking';
 
 const icon = (key: string) => `<img src="${asset(`ui/${key}`)}" alt="">`;
@@ -17,11 +18,19 @@ const statCodes = { amount: 'PROJECTILE_COUNT', damage: 'DAMAGE', size: 'PROJECT
 const abilityIds: Record<string, SkillId> = { HEAL: 'heal', RAPID_FIRE: 'rapid-fire', SHIELD: 'shield', BULLET_CLEAR: 'clear' };
 const sortieScore = (seconds: number, kills: number) => Math.floor(Math.round(seconds * 1000) / 1000) * 10 + kills * 5;
 const earned = new Intl.NumberFormat('ko-KR', { signDisplay: 'exceptZero' });
+const damageDisplay = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 3 });
+const speedDisplay = new Intl.NumberFormat('ko-KR', { style: 'percent', maximumFractionDigits: 1 });
 const audioChannels = { bgm: 'BGM', sfx: '효과음' } as const;
 const navigationSounds = new Set([
   'main', 'modes', 'map', 'map-point', 'intro', 'next-line', 'skip-line', 'retry', 'result-map',
   'upgrades', 'pets', 'gear', 'back-gear', 'rank', 'settings',
 ]);
+function minigameLevels(stats: StatUpgrade[]): Levels {
+  return Object.fromEntries(upgradeIds.map(id => {
+    const value = stats.find(stat => stat.scope === 'MINIGAME' && stat.statCode === statCodes[id])?.valueBonus ?? 0;
+    return [id, id === 'damage' || id === 'size' ? value / 10 : value];
+  })) as Levels;
+}
 
 export function openGame(onClose: () => void, onBalance: (cells: number) => void): () => void {
   const api = minigameApi();
@@ -334,12 +343,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       const skill = abilityIds[ability.code]!;
       const pet = { ...battlePets.find(candidate => candidate.speciesId === start.pet.species.speciesId)!, ...combat,
         ability: { id: skill, name: ability.name, effectValue: ability.effectValue, cooldownSec: ability.cooldownSec } };
-      const levels = Object.fromEntries(upgradeIds.map(id => {
-        const value = start.upgrades.find(stat => stat.scope === 'MINIGAME' && stat.statCode === statCodes[id])?.valueBonus ?? 0;
-        return [id, id === 'damage' || id === 'size' ? value / 10 : value];
-      })) as Levels;
       stats = start.upgrades;
-      active = { mode: runMode, stage: index, levels, skill, pet };
+      active = { mode: runMode, stage: index, levels: minigameLevels(stats), skill, pet };
       if (runMode === 'endless') { play(); return; }
       dialogue(stage.start, () => index === 0 ? tutorial() : play(), false);
     } catch (error) {
@@ -372,7 +377,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       ${tag ? '<canvas width="64" height="64" class="mg-portrait" aria-hidden="true"></canvas>'
         : `<img class="mg-portrait" src="${asset(`portraits/portrait-${who}`)}" alt="">`}
       <div><h2 tabindex="-1">${speakers[who]}</h2><p></p>
-      ${button('next-line', '다음')}${retry || stageInfo(active!.stage)?.cleared && !dialogueOnBattle ? button('skip-line', '건너뛰기') : ''}</div>
+      <button type="button" data-action="next-line" aria-keyshortcuts="Space Enter">다음</button>
+      ${retry || stageInfo(active!.stage)?.cleared && !dialogueOnBattle ? button('skip-line', '건너뛰기') : ''}</div>
       </div>`, overBattle ? '' : areaImage(stage.zone, 'map'), overBattle);
     menu.querySelector('p')!.textContent = text;
     if (!tag) return;
@@ -548,10 +554,15 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       ? `5초 동안 자동 발사 빈도가 ${Math.round((ability.effectValue - 1) * 100)}% 증가해요.`
       : skills[skill].description;
     show(panel('펫 설정', `
-      <div class="mg-columns">
-        <div class="mg-pet-list">${pets.map(candidate =>
-          `<button type="button" data-pet="${candidate.userPetId}" aria-pressed="${candidate === owned}"></button>`).join('')}</div>
-        <section><h2></h2><p>${icon(`skill-${skill}`)} ${skills[skill].name}</p><p>${description}</p>
+      <div class="mg-columns mg-pet-columns">
+        <div class="mg-pet-list">${pets.map(candidate => {
+          const sprite = battlePets.find(pet => pet.speciesId === candidate.species.speciesId)?.sprite;
+          return `<button type="button" data-pet="${candidate.userPetId}" aria-pressed="${candidate === owned}">${sprite ? `<img src="${asset(`${sprite}-preview`)}" alt="">` : ''}</button>`;
+        }).join('')}</div>
+        <section><h2></h2><p>진화 ${owned.evolutionStage}단계</p>
+          <h3>출전 능력치</h3>
+          <div class="mg-pet-combat" aria-live="polite"><p>능력치를 불러오는 중…</p></div>
+          <p>${icon(`skill-${skill}`)} ${skills[skill].name}</p><p>${description}</p>
           <p>재사용 대기 ${ability.cooldownSec}초 · 포만도 ${owned.hunger}/100</p>
           <div class="mg-pet-actions"><button type="button" data-action="equip" ${owned.canSortie ? '' : 'disabled'}>출전 펫으로 선택</button>${button('gear', '장비 슬롯', 'gear-slot')}</div>
           <p role="status"></p></section>
@@ -559,10 +570,48 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     menu.querySelector('h2')!.textContent = `${owned.nickname ?? owned.species.name} · Lv. ${owned.level} · ${owned.species.grade}`;
     for (const candidate of pets) {
       const label = candidate.nickname ?? candidate.species.name;
-      menu.querySelector(`[data-pet="${candidate.userPetId}"]`)!.textContent =
-        `${label}${candidate.userPetId === selectedPet ? ' · 출전 펫' : ''}${candidate.canSortie ? '' : ' · 출전 불가'}`;
+      menu.querySelector(`[data-pet="${candidate.userPetId}"]`)!.append(
+        `${label}${candidate.userPetId === selectedPet ? ' · 출전 펫' : ''}${candidate.canSortie ? '' : ' · 출전 불가'}`);
     }
     menu.querySelector('[role="status"]')!.textContent = message;
+    const combatPanel = menu.querySelector('.mg-pet-combat')!;
+    void api.petCombatStats(owned.userPetId).then(combat => {
+      if (!combatPanel.isConnected) return;
+      const { damage, maxHp, moveSpeedScale, bulletSpeedScale } = battlePetStats(combat, minigameLevels(stats));
+      combatPanel.innerHTML = `<dl>
+        <div><dt>1발 피해</dt><dd>${damageDisplay.format(damage)}</dd></div>
+        <div><dt>최대 HP</dt><dd>${maxHp}</dd></div>
+        <div><dt>이동 속도</dt><dd>${speedDisplay.format(moveSpeedScale)}</dd></div>
+        <div><dt>탄속</dt><dd>${speedDisplay.format(bulletSpeedScale)}</dd></div>
+      </dl>`;
+    }).catch(() => {
+      if (combatPanel.isConnected) combatPanel.textContent = '능력치를 불러오지 못했어요. 펫을 다시 선택해 주세요.';
+    });
+  }
+
+  async function showGear(): Promise<void> {
+    const owned = pets.find(pet => pet.userPetId === inspectingPet);
+    if (!owned) { showPets(); return; }
+    show(panel('펫 장비', `
+      <p class="mg-gear-pet"></p>
+      <ul class="mg-gear-slots">${petGearSlots.map(({ slotNo, label }) => `
+        <li data-slot-no="${slotNo}">${icon('gear-default')}<h2>${label}</h2><p>—</p></li>`).join('')}</ul>
+      <p role="status">장비 정보를 불러오는 중…</p>
+      ${button('back-gear', '돌아가기')}`), 'scenes/main-hangar');
+    menu.querySelector('.mg-gear-pet')!.textContent = owned.nickname ?? owned.species.name;
+    const slots = menu.querySelectorAll('.mg-gear-slots li p');
+    const status = menu.querySelector('[role="status"]')!;
+    try {
+      const detail = await api.petDetail(owned.userPetId);
+      if (!status.isConnected) return;
+      petGearLabels(detail).forEach((label, index) => { slots[index]!.textContent = label; });
+      status.textContent = '';
+    } catch (error) {
+      if (!status.isConnected) return;
+      status.textContent = error instanceof Error && 'status' in error && error.status === 501
+        ? '장비 장착 기능은 준비 중이에요.'
+        : '장비 정보를 불러오지 못했어요.';
+    }
   }
 
   async function showRank(): Promise<void> {
@@ -657,11 +706,21 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
         showPets('출전 펫을 선택했어요.', '[data-action="equip"]');
         break;
       }
-      case 'gear': show(panel('펫 장비', `<p>${icon('gear-slot')} 장착할 수 있는 장비가 없어요.</p>${button('back-gear', '돌아가기')}`)); break;
+      case 'gear': void showGear(); break;
       case 'back-gear': showPets('', '[data-action="gear"]'); break;
       case 'rank': showRank(); break;
     }
   });
+
+  const onDialogueKeyDown = (event: KeyboardEvent): void => {
+    if (menu.hidden || settings.open || event.isComposing || event.altKey || event.ctrlKey || event.metaKey) return;
+    if (event.key !== ' ' && event.key !== 'Enter') return;
+    const next = menu.querySelector<HTMLButtonElement>('[data-action="next-line"]');
+    if (!next) return;
+    if (!event.repeat && event.target instanceof HTMLButtonElement && event.target !== next) return;
+    event.preventDefault();
+    if (!event.repeat) next.click();
+  };
 
   overlay.addEventListener('keydown', event => {
     if (settings.open) return;
@@ -690,6 +749,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   document.body.append(overlay);
   document.body.classList.add('in-game');
   window.addEventListener('resize', resize);
+  window.addEventListener('keydown', onDialogueKeyDown);
   resize();
   syncAudioPause();
   audio.setMusic('lobby');
@@ -703,6 +763,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     cancelAnimationFrame(portraitFrame);
     window.clearTimeout(endingTimer);
     window.removeEventListener('resize', resize);
+    window.removeEventListener('keydown', onDialogueKeyDown);
     document.removeEventListener('visibilitychange', syncAudioPause);
     game.stop();
     audio.dispose();

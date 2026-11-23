@@ -101,6 +101,7 @@ addEquipment(client, userId, equipmentId, qty)
 | --- | --- | --- |
 | GET /pets | 내 펫 목록 | → Pet[] |
 | GET /pets/:userPetId | 펫 상세 (장비·전투 능력치 포함) | → PetDetail |
+| GET /pets/:userPetId/combat-stats | 내 펫의 출전 능력치 | → CombatStats (미니게임 전용 강화는 별도 적용) |
 | PATCH /pets/:userPetId | 이름 변경·대표 설정 | {nickname?, isRepresentative?} → Pet |
 | POST /pets/:userPetId/feed | 밥·간식·장난감 주기 | {itemId} → {pet: Pet, used: Item} |
 | POST /pets/:userPetId/pat | 쓰다듬기 (아이템 없음) | → Pet |

@@ -1,7 +1,7 @@
 import { PlayerBullet } from './Bullet';
 import { PLAYER, PLAYER_BULLET, WORLD } from './config';
 import type { Input } from './Input';
-import { baseLevels, petDamageBonus, type Levels } from './progress';
+import { baseLevels, type Levels } from './progress';
 import { battlePetStats, type BattlePet } from './petCatalog';
 import { drawSprite } from './sprites';
 import { clamp } from './utils';
@@ -26,13 +26,13 @@ export class Player {
 
   reset(levels: Levels, petLevel = 1, pet?: BattlePet): void {
     this.levels = levels;
-    const stats = pet && battlePetStats(pet, PLAYER.maxHp);
-    this.damage = PLAYER_BULLET.damage * (1 + levels.damage / 10) * (stats?.damageScale ?? 1 + petDamageBonus(petLevel));
-    this.speed = PLAYER.speed * (stats?.moveSpeedScale ?? 1);
-    this.bulletSpeed = PLAYER_BULLET.speed * (stats?.bulletSpeedScale ?? 1);
+    const stats = battlePetStats(pet, levels, petLevel);
+    this.damage = stats.damage;
+    this.speed = PLAYER.speed * stats.moveSpeedScale;
+    this.bulletSpeed = PLAYER_BULLET.speed * stats.bulletSpeedScale;
     this.x = WORLD.width / 2;
     this.y = WORLD.height - 110;
-    this.maxHp = (stats?.maxHp ?? PLAYER.maxHp) + levels['max-hp'];
+    this.maxHp = stats.maxHp;
     this.hp = this.maxHp;
     this.isShieldActive = false;
     this.fireRate = 1;

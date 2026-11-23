@@ -25,7 +25,7 @@ function storeToken(token: string | null) {
 async function request<T>(path: string, options?: RequestInit): Promise<T> {
   const response = await fetch(baseUrl + path, { signal: AbortSignal.timeout(5000), ...options });
   const result: ApiResult<T> = await response.json();
-  if (!result.ok) throw new Error(result.error.message);
+  if (!result.ok) throw Object.assign(new Error(result.error.message), { status: response.status });
   return result.data;
 }
 

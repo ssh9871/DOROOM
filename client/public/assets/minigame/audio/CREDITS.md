@@ -18,30 +18,30 @@ CC0 항목에는 [CC0 1.0](https://creativecommons.org/publicdomain/zero/1.0/)�
 
 ## 효과음
 
-아래 효과음은 모두 CC0이다. Kenney 원본의 개별 파일은 [Open Game SFX Index](https://github.com/Mcamento8/open-game-sfx-index) 미러에서 받았다.
+아래 효과음은 모두 CC0이다. Kenney와 Juhani Junkala의 개별 파일은 [Open Game SFX Index](https://github.com/Mcamento8/open-game-sfx-index)에서 받았다.
 
-| 배포 파일 | 원본 파일 | 저작자 및 출처 |
-| --- | --- | --- |
-| `s01.wav` | `click_001.ogg` | [Kenney · interface-sounds](https://kenney.nl/assets/interface-sounds) |
-| `s02.wav` | `confirmation_001.ogg` | [Kenney · interface-sounds](https://kenney.nl/assets/interface-sounds) |
-| `s03.wav` | `laserSmall_000.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
-| `s04.wav` | `impactMetal_medium_002.ogg` | [Kenney · impact-sounds](https://kenney.nl/assets/impact-sounds) |
-| `s05.wav` | `impactMetal_medium_003.ogg` | [Kenney · impact-sounds](https://kenney.nl/assets/impact-sounds) |
-| `s06.wav` | `forceField_001.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
-| `s07.wav` | `laserRetro_004.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
-| `s08.wav` | `pepSound3.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s09.wav` | `twoTone1.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s10.wav` | `alarm.ogg` | [EZduzziteh](https://opengameart.org/content/alarm-1) |
-| `s11.wav` | `jingles_HIT15.ogg` | [Kenney · music-jingles](https://kenney.nl/assets/music-jingles) |
-| `s12.wav` | `phaserUp3.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s13.wav` | `explosionCrunch_001.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
-| `s14.wav` | `lowRandom.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s15.wav` | `forceField_000.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
-| `s16.wav` | `phaseJump1.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s17.wav` | `powerUp6.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s18.wav` | `powerUp5.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
-| `s19.wav` | `victory.mp3` | [SRG774](https://opengameart.org/content/dark-sci-fi-audio-pack) |
-| `s20.wav` | `Game over jingle.ogg` | [Kosmo The Cat](https://opengameart.org/content/game-over-short-jingle) |
-| `s22.wav` | `jingles_PIZZI05.ogg` | [Kenney · music-jingles](https://kenney.nl/assets/music-jingles) |
+| 배포 파일 | 확정 선택 | 원본 파일 | 저작자 및 출처 |
+| --- | --- | --- | --- |
+| `s01.wav` | S01-A | `click_001.ogg` | [Kenney · interface-sounds](https://kenney.nl/assets/interface-sounds) |
+| `s02.wav` | S02-A | `confirmation_001.ogg` | [Kenney · interface-sounds](https://kenney.nl/assets/interface-sounds) |
+| `s03.wav` | S03-A | `laserSmall_000.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
+| `s04.wav` | S04-B | `sfx_damage_hit1.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s05.wav` | S05-C | `impactMetal_004.ogg` | [Kenney · Sci-fi Sounds](https://kenney.nl/assets/sci-fi-sounds) |
+| `s06.wav` | S06-A | `forceField_001.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
+| `s07.wav` | S07-A | `sfx_wpn_laser2.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s08.wav` | S08-C | `sfx_sounds_powerup11.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s09.wav` | S09-C | `error_007.ogg` | [Kenney · Interface Sounds](https://kenney.nl/assets/interface-sounds) |
+| `s10.wav` | S10-A | `sfx_alarm_loop3.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s11.wav` | S11-A | `jingles_HIT15.ogg` | [Kenney · music-jingles](https://kenney.nl/assets/music-jingles) |
+| `s12.wav` | S12-B | `phaserUp6.ogg` | [Kenney · Digital Audio](https://kenney.nl/assets/digital-audio) |
+| `s13.wav` | S13-A | `sfx_exp_double1.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s14.wav` | S14-A | `lowRandom.ogg` | [Kenney · digital-audio](https://kenney.nl/assets/digital-audio) |
+| `s15.wav` | S15-A | `forceField_000.ogg` | [Kenney · sci-fi-sounds](https://kenney.nl/assets/sci-fi-sounds) |
+| `s16.wav` | S16-A | `sfx_movement_portal1.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s17.wav` | S17-C | `powerUp8.ogg` | [Kenney · Digital Audio](https://kenney.nl/assets/digital-audio) |
+| `s18.wav` | S18-B | `sfx_sounds_powerup1.wav` | [Juhani Junkala · 512 Sound Effects](https://opengameart.org/content/512-sound-effects-8-bit-style) |
+| `s19.wav` | S19-A | `winneris.ogg` | [congusbongus · And the winner is](https://opengameart.org/content/and-the-winner-is) |
+| `s20.wav` | S20-C | `losegamemusic.ogg` | [Robin Lamb · Lose Game Short Music Clip](https://opengameart.org/content/lose-game-short-music-clip) |
+| `s22.wav` | S22-A | `jingles_PIZZI05.ogg` | [Kenney · music-jingles](https://kenney.nl/assets/music-jingles) |
 
-`s03`, `s06`, `s07`은 반복 재생에 맞춰 짧게 편집했고, `s19`, `s20`은 결과 징글 길이에 맞춰 편집했다. 각 효과음에 짧은 페이드를 적용했다.
+효과음은 44.1kHz PCM 16비트 WAV로 저장했다. 개별 재생 게인을 적용했을 때 활성 50ms RMS의 75백분위수를 일반 효과음 약 -22 dBFS, 클릭과 반복 전투음 약 -24 dBFS로 맞췄다. 각 WAV의 트루피크를 -6 dBTP 이하로 제한하고 경계에 짧은 페이드를 적용했다. 자동 발사음 S03은 115ms, 보호막 흡수음 S06은 190ms, 귀환음 S20은 3.25초로 편집했다.
