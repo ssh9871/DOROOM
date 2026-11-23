@@ -11,11 +11,15 @@ import { addCell } from '../services/cellService.js';
 const router = Router();
 router.use(requireAuth);
 
-// ① GET /shop/items → Item[]   판매 중(is_active)인 아이템만, 종류 → 가격 순
+// 도로팜 상점에서 파는 아이템 종류. 경험치 포션(EXP_POTION)·게임 버프(GAME_BUFF)는 미니게임 안에서 판매 (11/23 석훈)
+// 아이템 자체는 DB에 그대로 있음 — 미니게임이 같은 item 표를 씀
+const DOROFARM_SHOP_TYPES = ['FOOD', 'SNACK', 'TOY', 'EVOLVE_STONE'];
+
+// ① GET /shop/items → Item[]   도로팜 상점 판매 중인 아이템만, 종류 → 가격 순
 router.get('/items', wrap(async (req, res) => {
   const { rows } = await pool.query(
-    `SELECT * FROM item WHERE is_active
-      ORDER BY array_position(ARRAY['FOOD','SNACK','TOY','EXP_POTION','EVOLVE_STONE','GAME_BUFF'], item_type), price_cell, item_id`);
+    `SELECT * FROM item WHERE is_active AND item_type = ANY($1)
+      ORDER BY array_position($1::text[], item_type::text), price_cell, item_id`, [DOROFARM_SHOP_TYPES]);
   ok(res, rows.map(itemDto));
 }));
 
@@ -28,7 +32,8 @@ router.post('/buy', wrap(async (req, res) => {
   if (!Number.isInteger(quantity) || quantity < 1 || quantity > 99) throw new AppError('VALIDATION', 'quantity는 1~99');
 
   const result = await withTransaction(async (client) => {
-    const { rows } = await client.query('SELECT * FROM item WHERE item_id = $1 AND is_active', [itemId]);
+    const { rows } = await client.query(
+      'SELECT * FROM item WHERE item_id = $1 AND is_active AND item_type = ANY($2)', [itemId, DOROFARM_SHOP_TYPES]);
     if (!rows.length) throw new AppError('NOT_FOUND', '판매 중인 아이템이 아닙니다');
     const item = rows[0];
 
