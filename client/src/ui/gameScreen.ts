@@ -1,4 +1,5 @@
 import { Game } from '../game/Game';
+import { MinigameAudio, zoneMusic } from '../game/audio';
 import { asset, areaImage, drawSprite, loadBattle, loadSprite } from '../game/sprites';
 import { endlessStages, operations, speakers, stages, type Dialogue } from '../game/stages';
 import { BOSS_TIME_LIMIT, skills, upgradeIds, upgrades, type Levels, type RunResult, type RunSetup, type SkillId, type UpgradeId } from '../game/progress';
@@ -15,9 +16,16 @@ const returned: readonly Dialogue[] = [['void', '위험 한계 도달. 자동 �
 const statCodes = { amount: 'PROJECTILE_COUNT', damage: 'DAMAGE', size: 'PROJECTILE_SIZE', 'max-hp': 'HP' };
 const abilityIds: Record<string, SkillId> = { HEAL: 'heal', RAPID_FIRE: 'rapid-fire', SHIELD: 'shield', BULLET_CLEAR: 'clear' };
 const sortieScore = (seconds: number, kills: number) => Math.floor(Math.round(seconds * 1000) / 1000) * 10 + kills * 5;
+const earned = new Intl.NumberFormat('ko-KR', { signDisplay: 'exceptZero' });
+const audioChannels = { bgm: 'BGM', sfx: '효과음' } as const;
+const navigationSounds = new Set([
+  'main', 'modes', 'map', 'map-point', 'intro', 'next-line', 'skip-line', 'retry', 'result-map',
+  'upgrades', 'pets', 'gear', 'back-gear', 'rank', 'settings',
+]);
 
 export function openGame(onClose: () => void, onBalance: (cells: number) => void): () => void {
   const api = minigameApi();
+  const audio = new MinigameAudio();
   const overlay = document.createElement('div');
   overlay.id = 'game-fullscreen-overlay';
   overlay.className = 'game-overlay';
@@ -40,7 +48,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
           <div class="mg-boss" hidden><label for="mg-boss-hp"></label><progress id="mg-boss-hp"></progress><small class="mg-boss-time" hidden></small></div>
           <p class="mg-warning" role="status" hidden></p>
           <section class="mg-pause" hidden aria-label="일시정지">
-            <h2>일시정지</h2>${button('resume', '계속하기')}${button('abort', '출동 중단')}
+            <h2>일시정지</h2>${button('resume', '계속하기')}${button('settings', '설정')}${button('abort', '출동 중단')}
           </section>
         </div>
         <aside class="mg-hud">
@@ -50,12 +58,23 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
         </aside>
       </section>
       <section class="mg-menu"></section>
+      <dialog class="mg-settings" aria-labelledby="mg-settings-title">
+        <h2 id="mg-settings-title">설정</h2>
+        ${Object.entries(audioChannels).map(([channel, label]) => `
+          <div class="mg-volume">
+            <div class="mg-volume-label"><label for="mg-volume-${channel}">${label}</label><output for="mg-volume-${channel}"></output></div>
+            <input id="mg-volume-${channel}" type="range" min="0" max="100" step="1" ${channel === 'bgm' ? 'autofocus' : ''}>
+            <button type="button" data-mute="${channel}" aria-label="${label} 음소거" aria-pressed="false">음소거</button>
+          </div>`).join('')}
+        <form method="dialog" class="mg-settings-actions"><button>닫기</button></form>
+      </dialog>
     </div>`;
   const frame = overlay.querySelector<HTMLElement>('.mg-frame')!;
   const menu = overlay.querySelector<HTMLElement>('.mg-menu')!;
   const battle = overlay.querySelector<HTMLElement>('.mg-battle')!;
   const canvas = overlay.querySelector<HTMLCanvasElement>('canvas')!;
   const pause = overlay.querySelector<HTMLElement>('.mg-pause')!;
+  const settings = overlay.querySelector<HTMLDialogElement>('.mg-settings')!;
   const warning = overlay.querySelector<HTMLElement>('.mg-warning')!;
   const bossHud = overlay.querySelector<HTMLElement>('.mg-boss')!;
   const bossLabel = bossHud.querySelector('label')!;
@@ -82,6 +101,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   let official: GameResult | undefined;
   let runId: number | null = null;
   let saving = false;
+  let rewardShown = false;
+  let endingTimer = 0;
   let saveError = '';
   let retry = false;
   let upgrade: UpgradeId = 'amount';
@@ -112,6 +133,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
 
   function syncBattle(): void {
     if (!active) return;
+    syncAudioPause();
     bossSkip.hidden = !debug || !game.canSkipToBoss;
     const current = game.stage;
     const key = active.mode === 'endless' ? 'endless' : current.id;
@@ -133,6 +155,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       warning.hidden = !game.warning;
       warning.replaceChildren();
       if (game.warning) {
+        if (game.state === 'playing' && game.warning !== 'boss-in')
+          audio.effect(game.warning === 'boss' ? 'bossWarning' : 'eliteWarning');
         warning.insertAdjacentHTML('afterbegin', icon(game.warning === 'elite' ? 'hud-elite' : 'hud-boss'));
         warning.append({
           elite: '엘리트 접근 중', boss: '보스 접근 중', 'boss-in': '보스 등장',
@@ -140,6 +164,10 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       }
     }
     const boss = game.boss;
+    if (game.state === 'playing') {
+      audio.setDucked(game.warning === 'boss');
+      audio.setMusic(boss ? 'boss' : zoneMusic[current.zone]);
+    }
     bossHud.hidden = !boss;
     if (boss) {
       write(bossLabel, current.bossName);
@@ -150,11 +178,27 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       if (remaining !== undefined) write(bossTime, `정화 제한 ${Math.ceil(remaining)}초`);
     }
     pause.hidden = game.state !== 'paused';
-    if (!pause.hidden && !pause.contains(document.activeElement) && document.activeElement !== canvas) canvas.focus();
+    if (!pause.hidden && !settings.open && !pause.contains(document.activeElement) && document.activeElement !== canvas) canvas.focus();
   }
 
-  const game = new Game(canvas, syncBattle, finish);
+  const game = new Game(canvas, syncBattle, finish, audio.effect);
+  const syncAudioPause = () => audio.setPaused(document.hidden || game.state === 'paused');
   const resize = () => frame.style.setProperty('--mg-scale', String(Math.min(overlay.clientWidth / 1280, overlay.clientHeight / 720)));
+
+  for (const channel of ['bgm', 'sfx'] as const) {
+    const volume = settings.querySelector<HTMLInputElement>(`#mg-volume-${channel}`)!;
+    const value = settings.querySelector<HTMLOutputElement>(`output[for="${volume.id}"]`)!;
+    const mute = settings.querySelector<HTMLButtonElement>(`[data-mute="${channel}"]`)!;
+    const sync = () => {
+      const level = audio.level(channel);
+      volume.valueAsNumber = level.volume;
+      value.value = `${level.volume}%`;
+      mute.setAttribute('aria-pressed', String(level.muted));
+    };
+    volume.addEventListener('input', () => { audio.setVolume(channel, volume.valueAsNumber); sync(); });
+    mute.addEventListener('click', () => { audio.toggleMute(channel); sync(); });
+    sync();
+  }
 
   function show(html: string, background = '', keepBattle = false, focus?: string): void {
     cancelAnimationFrame(portraitFrame);
@@ -201,6 +245,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   function main(): void {
     game.returnToMain();
     active = undefined;
+    syncAudioPause();
+    audio.setMusic('lobby');
     show(`
       <button type="button" class="mg-debug" data-action="debug" aria-pressed="${debug}">디버그 모드${debug ? ' 켜짐' : ''}</button>
       <div class="mg-exit">${button('exit', 'DOROBUS로 돌아가기')}</div>
@@ -211,6 +257,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
           ${button('upgrades', '능력치 강화', 'menu-upgrade')}
           ${button('pets', '펫 설정', 'menu-pets')}
           ${button('rank', '랭킹', 'menu-ranking')}
+          ${button('settings', '설정')}
         </div>
       </div>`, 'scenes/main-hangar');
   }
@@ -262,6 +309,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     active = undefined;
     result = undefined;
     official = undefined;
+    rewardShown = false;
+    audio.setMusic('lobby');
     saveError = '';
     retry = isRetry;
     const stage = stages[index]!;
@@ -348,17 +397,32 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     menu.hidden = true;
     battle.hidden = false;
     battle.inert = false;
+    audio.stopEffects();
     game.startRun(active);
+    audio.effect('launch');
     canvas.focus();
   }
 
   function finish(run: RunResult): void {
     result = run;
     const stage = stages[run.stage]!;
+    audio.setMusic();
+    audio.setDucked(false);
+    audio.stopEffects();
+    syncAudioPause();
+    const duration = audio.effect(({ clear: 'victory', return: 'retreat', abort: 'click' } as const)[run.outcome]);
     void saveResult();
+    const ending = run.mode === 'stage' && run.outcome === 'clear' && stage.id === '4-3';
+    if (ending) endingTimer = window.setTimeout(() => audio.setMusic('ending'), duration * 1000);
     if (run.mode === 'stage' && run.outcome !== 'abort')
       dialogue(run.outcome === 'clear' ? stage.clear : run.bossTimeout
-        ? [['void', '정화 제한 시간이 끝났습니다. 자동 귀환을 시작합니다.']] : returned, showResult, true);
+        ? [['void', '정화 제한 시간이 끝났습니다. 자동 귀환을 시작합니다.']] : returned, () => {
+        if (ending) {
+          window.clearTimeout(endingTimer);
+          audio.setMusic();
+        }
+        showResult();
+      }, true);
     else showResult();
   }
 
@@ -401,24 +465,47 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   function showResult(): void {
     const run = result!;
     const stage = stages[run.stage]!;
-    const title = { clear: '작전 완료', return: '귀환', abort: '출동 중단' }[run.outcome];
+    const stageSettlement = run.mode === 'stage' && run.outcome !== 'abort' && !debug;
+    const title = { clear: stageSettlement ? '스테이지 클리어' : '작전 완료', return: '귀환', abort: '출동 중단' }[run.outcome];
     const next = stages[run.stage + 1];
     let unlock = '';
     if (official?.firstClearBonus) {
       if (!next) unlock = '반복 송신 종료 · 무한 모드 해금';
       else if (!stageInfo(run.stage + 1)?.cleared) unlock = `새 지점 ${next.id} ${next.name} 해금`;
     }
+    const clearCells = official ? official.rewardCell - official.scoreRewardCell : 0;
+    if (!rewardShown && official && (official.rewardCell + official.firstClearBonus > 0 || official.expGained > 0)) {
+      rewardShown = true;
+      audio.effect('reward');
+    }
+    const tally = stageSettlement ? `<div class="mg-stage-result" data-outcome="${run.outcome}">
+      ${official ? `
+        <dl class="mg-result-totals">
+          <div><dt>${icon('hud-cell')} 획득 셀</dt><dd>${earned.format(official.rewardCell + official.firstClearBonus)}셀</dd></div>
+          <div><dt>펫 경험치</dt><dd>${earned.format(official.expGained)} XP</dd></div>
+        </dl>
+        <dl class="mg-result-breakdown">
+          <div><dt>점수 보상</dt><dd>${earned.format(official.scoreRewardCell)}셀</dd></div>
+          ${clearCells > 0 ? `<div><dt>클리어 보상</dt><dd>${earned.format(clearCells)}셀</dd></div>` : ''}
+          ${official.firstClearBonus > 0 ? `<div><dt>첫 클리어 보너스</dt><dd>${earned.format(official.firstClearBonus)}셀</dd></div>` : ''}
+        </dl>` : ''}
+      <dl class="mg-tally mg-result-stats">
+        ${official ? `<div><dt>${icon('hud-score')} 최종 점수</dt><dd>${official.score.toLocaleString()}점</dd></div>` : ''}
+        <div><dt>${icon('hud-time')} 생존 시간</dt><dd>${clock(run.seconds)}</dd></div>
+        <div><dt>정화 수</dt><dd>${run.purified.toLocaleString()}기</dd></div>
+      </dl>
+    </div>` : `<dl class="mg-tally"><dt>생존 시간</dt><dd>${clock(run.seconds)}</dd>
+      <dt>정화 수</dt><dd>${run.purified}기</dd>
+      ${official ? `<dt>최종 점수</dt><dd>${official.score}점</dd>
+        <dt>출동 보상</dt><dd>${official.rewardCell}셀</dd>
+        <dt>첫 클리어 보상</dt><dd>${official.firstClearBonus}셀</dd>
+        <dt>펫 경험치</dt><dd>${official.expGained}</dd>`
+        : debug && run.outcome !== 'abort' ? `<dt>연습 점수</dt><dd>${sortieScore(run.seconds, run.purified) + (run.outcome === 'clear' ? clearBonus : 0)}점</dd>` : ''}</dl>`;
     show(panel(title, `
       <p>${run.mode === 'stage' ? `${stage.id} ${stage.name}` : '무한 모드'}</p>
       ${debug ? '<p>디버그 연습 · 기록과 보상 제외</p>' : ''}
       ${run.bossTimeout ? '<p>보스 정화 시간 초과</p>' : ''}
-      <dl class="mg-tally"><dt>생존 시간</dt><dd>${clock(run.seconds)}</dd>
-        <dt>정화 수</dt><dd>${run.purified}기</dd>
-        ${official ? `<dt>최종 점수</dt><dd>${official.score}점</dd>
-          <dt>출동 보상</dt><dd>${official.rewardCell}셀</dd>
-          <dt>첫 클리어 보상</dt><dd>${official.firstClearBonus}셀</dd>
-          <dt>펫 경험치</dt><dd>${official.expGained}</dd>`
-          : debug && run.outcome !== 'abort' ? `<dt>연습 점수</dt><dd>${sortieScore(run.seconds, run.purified) + (run.outcome === 'clear' ? clearBonus : 0)}점</dd>` : ''}</dl>
+      ${tally}
       ${unlock ? `<p class="mg-unlock">${icon('cleared')}${unlock}</p>` : ''}
       ${saving ? '<p role="status">결과를 확인하는 중…</p>' : saveError ? `<p role="alert"></p>${button('save-result', '저장 다시 시도')}` : ''}
       ${runId !== null ? '' : `<div class="mg-actions">${button('retry', '다시 도전')}
@@ -505,17 +592,22 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   }
 
   overlay.addEventListener('click', async event => {
+    if (settings.contains(event.target as Node)) return;
+    audio.unlock();
     const target = (event.target as Element).closest<HTMLButtonElement>('button');
     if (!target) {
       if (game.state === 'playing' && menu.hidden) canvas.focus({ preventScroll: true });
       return;
     }
     if (target.disabled) return;
+    const action = target.dataset.action;
+    if (navigationSounds.has(action ?? '') || ['zone', 'stage', 'upgrade', 'pet'].some(key => key in target.dataset))
+      audio.effect('click');
     if (target.dataset.zone !== undefined) { zone = Number(target.dataset.zone); map(); menu.querySelector<HTMLElement>(`[data-zone="${zone}"]`)?.focus(); return; }
     if (target.dataset.stage !== undefined) { selected = Number(target.dataset.stage); intro(); return; }
     if (target.dataset.upgrade) { upgrade = target.dataset.upgrade as UpgradeId; showUpgrades('', `[data-upgrade="${upgrade}"]`); return; }
     if (target.dataset.pet) { inspectingPet = Number(target.dataset.pet); showPets('', `[data-pet="${inspectingPet}"]`); return; }
-    switch (target.dataset.action) {
+    switch (action) {
       case 'debug': debug = !debug; main(); menu.querySelector<HTMLElement>('.mg-debug')?.focus(); break;
       case 'exit': onClose(); break;
       case 'load-lobby': void loadLobby(); break;
@@ -529,13 +621,14 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       case 'next-line': if (++line < lines.length) showLine(); else dialogueDone(); break;
       case 'skip-line': dialogueDone(); break;
       case 'play': play(); break;
+      case 'settings': settings.showModal(); break;
       case 'skill': game.activatePetSkill(); canvas.focus(); break;
       case 'skip-boss': if (debug && game.canSkipToBoss) { game.skipToBoss(); canvas.focus(); } break;
       case 'resume': game.resume(); canvas.focus(); break;
       case 'abort': game.abort(); break;
       case 'save-result': void saveResult(); showResult(); break;
       case 'retry': if (result) { selected = result.stage; void begin(result.mode, result.stage, true); } break;
-      case 'result-map': selected = result!.stage; zone = stages[selected]!.zone; map(true); break;
+      case 'result-map': selected = result!.stage; zone = stages[selected]!.zone; audio.setMusic('lobby'); map(true); break;
       case 'upgrades': showUpgrades(); break;
       case 'buy': {
         show(panel('능력치 강화', '<p role="status">구매를 확인하는 중…</p>'));
@@ -571,9 +664,11 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   });
 
   overlay.addEventListener('keydown', event => {
-    if (event.key === 'Escape' && game.state === 'paused' && event.target !== canvas && !battle.inert) {
+    if (settings.open) return;
+    if (event.key === 'Escape' && !event.repeat && event.target !== canvas && !battle.hidden && !battle.inert) {
       event.preventDefault();
-      game.resume();
+      if (game.state === 'paused') game.resume();
+      else game.pause();
       canvas.focus();
       return;
     }
@@ -596,14 +691,21 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   document.body.classList.add('in-game');
   window.addEventListener('resize', resize);
   resize();
+  syncAudioPause();
+  audio.setMusic('lobby');
+  audio.unlock();
   void loadLobby();
   game.start();
+  document.addEventListener('visibilitychange', syncAudioPause);
   return () => {
     disposed = true;
     if (runId !== null && !result) void api.abort(runId).catch(console.error);
     cancelAnimationFrame(portraitFrame);
+    window.clearTimeout(endingTimer);
     window.removeEventListener('resize', resize);
+    document.removeEventListener('visibilitychange', syncAudioPause);
     game.stop();
+    audio.dispose();
     overlay.remove();
     root.inert = wasInert;
     document.body.classList.remove('in-game');

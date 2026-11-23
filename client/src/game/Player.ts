@@ -40,7 +40,7 @@ export class Player {
     this.focus = false;
   }
 
-  update(dt: number, input: Input, emit: (bullet: PlayerBullet) => void): void {
+  update(dt: number, input: Input, emit: (bullet: PlayerBullet) => void, onVolley?: () => void): void {
     this.time += dt;
     const dx = Number(input.right) - Number(input.left);
     const dy = Number(input.down) - Number(input.up);
@@ -59,6 +59,7 @@ export class Player {
         emit(new PlayerBullet(this.x + (i - (count - 1) / 2) * 18, this.y - 36,
           this.damage, 1 + this.levels.size / 10, this.bulletSpeed));
       }
+      onVolley?.();
     }
   }
 

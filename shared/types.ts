@@ -105,7 +105,10 @@ export interface GameResult {
   runId: number;
   replayed: boolean;     // true 면 이미 확정된 결과를 다시 돌려준 것 (보상 재지급 없음)
   mode: GameMode; stageNo: number | null;
-  score: number; rewardCell: number; firstClearBonus: number; expGained: number; cleared: boolean;
+  score: number;
+  rewardCell: number;      // 첫 클리어 보너스를 제외한 지급액
+  scoreRewardCell: number; // 스테이지 점수 보상. 무한 모드에서는 0
+  firstClearBonus: number; expGained: number; cleared: boolean;
   pet: Pet | null; balance: number; newRank: number | null;
 }
 export type GameRunStatus = 'PLAYING' | 'FINISHED' | 'ABORTED';

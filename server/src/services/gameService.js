@@ -12,7 +12,7 @@ export const SCORE = {
   perKill: 5,             // 처치 1마리당
 };
 export const REWARD = {
-  endlessCellDivisor: 100,   // 무한모드 셀 = floor(score / 100)
+  scoreCellDivisor: 100,     // 점수 보상 셀 = floor(score / 100)
   expDivisor: 10,            // 경험치 = floor(score / 10)
 };
 export const VALIDATION = {
@@ -181,11 +181,11 @@ export async function finishGame(client, userId, runId, body) {
 
   // 점수·보상 계산
   const score = calcScore({ survivalMs, killCount, cleared }, stage);
-  let rewardCell = 0, firstClearBonus = 0;
-  if (run.mode === 'ENDLESS') {
-    rewardCell = Math.floor(score / REWARD.endlessCellDivisor);
-  } else if (cleared) {
-    rewardCell = stage.repeat_reward_cell;
+  const scoreCells = Math.floor(score / REWARD.scoreCellDivisor);
+  const scoreRewardCell = stage ? scoreCells : 0;
+  let rewardCell = scoreCells, firstClearBonus = 0;
+  if (stage && cleared) {
+    rewardCell += stage.repeat_reward_cell;
     // 첫 클리어: PK (user_id, stage_no) 로 동시 요청에서도 한 번만
     const ins = await client.query(
       `INSERT INTO user_stage_clear (user_id, stage_no, first_run_id) VALUES ($1, $2, $3)
@@ -206,9 +206,11 @@ export async function finishGame(client, userId, runId, body) {
   const weekStart = await kstWeekStart(client, endedAt);
   await client.query(
     `UPDATE game_run SET status = 'FINISHED', reached_wave = $2, cleared = $3, survival_ms = $4, kill_count = $5,
-            score = $6, revive_used = $7, reward_cell = $8, exp_gained = $9, week_start = $10, ended_at = $11
+            score = $6, revive_used = $7, reward_cell = $8, exp_gained = $9, week_start = $10, ended_at = $11,
+            score_reward_cell = $12
       WHERE run_id = $1`,
-    [runId, reachedWave, cleared, survivalMs, killCount, score, reviveUsed, rewardCell + firstClearBonus, expGained, weekStart, endedAt]);
+    [runId, reachedWave, cleared, survivalMs, killCount, score, reviveUsed, rewardCell + firstClearBonus,
+      expGained, weekStart, endedAt, scoreRewardCell]);
 
   const updated = (await client.query('SELECT * FROM game_run WHERE run_id = $1', [runId])).rows[0];
   return buildResult(client, userId, updated, { replayed: false, firstClearBonus });
@@ -231,7 +233,8 @@ async function buildResult(client, userId, run, { replayed, firstClearBonus }) {
   try { pet = await getPet(client, userId, run.user_pet_id); } catch { /* 펫 삭제됨 */ }
   return {
     runId: run.run_id, replayed, mode: run.mode, stageNo: run.stage_no,
-    score: run.score, rewardCell: run.reward_cell - firstClearBonus, firstClearBonus, expGained: run.exp_gained,
+    score: run.score, rewardCell: run.reward_cell - firstClearBonus, scoreRewardCell: run.score_reward_cell,
+    firstClearBonus, expGained: run.exp_gained,
     cleared: run.cleared, pet, balance: await getBalance(client, userId), newRank,
   };
 }

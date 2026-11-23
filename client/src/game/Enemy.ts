@@ -103,6 +103,7 @@ export class Enemy {
   update(
     dt: number, target: Point, room: number, emit: (bullet: EnemyBullet) => void,
     reinforce: () => boolean, clearShots: () => void, pace = 1, bulletSpeed = 1, canStart = true,
+    sound?: (cue: 'enemyShot' | 'laserWarning' | 'phaseTwo') => void,
   ): void {
     this.age += dt;
     this.hitFlash = Math.max(0, this.hitFlash - dt);
@@ -119,6 +120,7 @@ export class Enemy {
       this.barrier = false;
       this.index = this.volley = 0;
       this.timer = 0.8;
+      sound?.('phaseTwo');
       return;
     }
 
@@ -193,6 +195,8 @@ export class Enemy {
       this.attack = attack;
       if (step === 0) this.lastAttack = this.age;
       if (count > 0) this.attackFlash = 0.16;
+      if (count > 0 && step === 0) sound?.('enemyShot');
+      if (attack === 'laser' && lockAim) sound?.('laserWarning');
       this.aim = aim;
       this.barrier = false;
       if (step === 0 && this.kind === 'elite' && this.index % this.attacks.length === 0

@@ -1,4 +1,5 @@
 import { Background } from './Background';
+import type { SoundCue } from './audio';
 import { EnemyBullet, PlayerBullet } from './Bullet';
 import { BOSS_AT, ELITES, PLAYER, WORLD } from './config';
 import { Effects } from './Effects';
@@ -70,6 +71,7 @@ export class Game {
     private readonly canvas: HTMLCanvasElement,
     private readonly updateUi: () => void,
     private readonly finish: (result: RunResult) => void,
+    private readonly sound?: (cue: SoundCue) => void,
   ) {
     const ctx = canvas.getContext('2d');
     if (!ctx) throw new Error('Canvas 2D를 열 수 없습니다.');
@@ -162,6 +164,7 @@ export class Game {
 
   activatePetSkill(): boolean {
     if (this.state !== 'playing' || !this.pet.activate(this.player, () => { this.enemyBullets = []; })) return false;
+    this.sound?.(this.pet.skill);
     if (this.pet.skill === 'clear') this.effects.play('bullet-clear', WORLD.width / 2, WORLD.height / 2, 0.5);
     if (this.pet.skill === 'heal') this.effects.play('heal', this.player.x, this.player.y);
     this.updateUi();
@@ -204,7 +207,8 @@ export class Game {
     this.rafId = requestAnimationFrame(this.frame);
   };
 
-  private pause(): void {
+  pause(): void {
+    if (this.state !== 'playing') return;
     this.state = 'paused';
     this.input.clear();
     this.updateUi();
@@ -221,7 +225,7 @@ export class Game {
     this.background.update(dt);
     this.effects.update(dt);
     this.pet.update(dt, this.player);
-    this.player.update(dt, this.input, bullet => this.playerBullets.push(bullet));
+    this.player.update(dt, this.input, bullet => this.playerBullets.push(bullet), () => this.sound?.('playerShot'));
     this.spawn(dt);
 
     const isStage = this.setup.mode === 'stage';
@@ -242,7 +246,7 @@ export class Game {
         bullet => {
           this.enemyBullets.push(bullet);
           if (bullet.wide) wideInFlight = true;
-        }, () => this.reinforce(enemy.x), () => { this.enemyBullets = []; }, pace, bulletSpeed, canStart);
+        }, () => this.reinforce(enemy.x), () => { this.enemyBullets = []; }, pace, bulletSpeed, canStart, this.sound);
       if (enemy.isShooter && !shooting && enemy.timeSinceAttack === 0) activeShooters++;
     }
 
@@ -260,6 +264,7 @@ export class Game {
     else if (this.player.hp <= 0) this.endRun('return');
     else if (this.bossTimeLeft !== undefined && this.bossTimeLeft <= EPSILON) this.endRun('return', true);
     else if (areaCleared) {
+      this.sound?.('victory');
       this.area++;
       this.resetArea();
     } else if (!this.bossSummoned && this.areaTime + EPSILON >= BOSS_AT + 20) {
@@ -282,6 +287,7 @@ export class Game {
       this.enemies = [new Enemy('boss', stage.id, WORLD.width / 2, stage.boss, difficulty, bossHp, { stage: stage.id })];
       this.enemyBullets = [];
       this.bossPhase = true;
+      this.sound?.('bossEnter');
       return;
     }
     const next = ELITES[this.eliteIndex];
@@ -337,6 +343,7 @@ export class Game {
         [], health, undefined, { stage: this.stage.id, delay: i * 0.6 }));
       spawned = true;
     }
+    if (spawned) this.sound?.('reinforce');
     return spawned;
   }
 
@@ -353,13 +360,17 @@ export class Game {
           this.effects.play('purify', enemy.x, enemy.y);
           if (enemy.kind === 'elite') this.potions.push({ x: enemy.x, y: enemy.y });
           if (enemy.kind === 'boss') this.bossDefeated = enemy;
-        }
+          else this.sound?.('purify');
+        } else this.sound?.('enemyHit');
         break;
       }
     }
     const { player } = this;
     resolveEnemyBulletHits(player, this.enemyBullets,
-      bullet => this.effects.play('hit-spark', bullet.x, bullet.y, 0.4, 24), () => this.damagePlayer());
+      bullet => {
+        this.effects.play('hit-spark', bullet.x, bullet.y, 0.4, 24);
+        this.sound?.('absorb');
+      }, () => this.damagePlayer());
     for (const enemy of this.enemies) {
       if (enemy.laserHits(player, player.hitRadius) || (enemy.alive
         && circleRectOverlap(player.x, player.y, player.hitRadius, enemy.x, enemy.y, enemy.width, enemy.height)))
@@ -372,7 +383,10 @@ export class Game {
     this.potions = this.potions.filter(potion => {
       potion.y += 60 * dt;
       if (circlesOverlap(player.x, player.y, 24, potion.x, potion.y, 12)) {
-        if (player.heal()) this.effects.play('heal', player.x, player.y);
+        if (player.heal()) {
+          this.effects.play('heal', player.x, player.y);
+          this.sound?.('heal');
+        }
         return false;
       }
       return potion.y - 12 <= WORLD.height;
@@ -380,7 +394,9 @@ export class Game {
   }
 
   private damagePlayer(): void {
-    if (this.player.takeDamage()) this.effects.play('hit-spark', this.player.x, this.player.y);
+    if (!this.player.takeDamage()) return;
+    this.effects.play('hit-spark', this.player.x, this.player.y);
+    this.sound?.('damage');
   }
 
   private endRun(outcome: RunOutcome, bossTimeout = false): void {

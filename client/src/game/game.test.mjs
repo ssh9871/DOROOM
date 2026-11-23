@@ -8,6 +8,7 @@ registerHooks({ resolve(specifier, context, nextResolve) {
 } });
 
 const { Game } = await import('./Game.ts');
+const { soundFiles, zoneMusic } = await import('./audio.ts');
 const { Enemy } = await import('./Enemy.ts');
 const { EnemyBullet, PlayerBullet } = await import('./Bullet.ts');
 const { createPetState } = await import('../pets/pets.ts');
@@ -21,16 +22,29 @@ const ctx = { fillRect() {} };
 const canvas = new EventTarget();
 canvas.getContext = () => ctx;
 const results = [];
-const game = new Game(canvas, () => {}, result => results.push(result));
+const sounds = [];
+const game = new Game(canvas, () => {}, result => results.push(result), cue => sounds.push(cue));
 game.render = () => {};
-const start = (setup = {}) => game.startRun({ mode: 'stage', stage: 0, levels: baseLevels, skill: 'shield', petLevel: 1, ...setup });
+const start = (setup = {}) => {
+  sounds.length = 0;
+  game.startRun({ mode: 'stage', stage: 0, levels: baseLevels, skill: 'shield', petLevel: 1, ...setup });
+};
 const near = (a, b) => assert.ok(Math.abs(a - b) < 1e-7, `${a} != ${b}`);
+
+const audioDir = new URL('../../public/assets/minigame/audio/', import.meta.url);
+for (const track of ['lobby', ...zoneMusic, 'boss', 'ending']) {
+  assert.equal(readFileSync(new URL(`${track}.ogg`, audioDir)).toString('ascii', 0, 4), 'OggS', track);
+}
+for (const file of Object.values(soundFiles)) {
+  assert.equal(readFileSync(new URL(`${file}.wav`, audioDir)).toString('ascii', 8, 12), 'WAVE', file);
+}
 
 for (let stage = 0; stage < stages.length; stage++) {
   start({ stage });
   game.step(dt);
   game.player.hp = 1;
   game.skipToBoss();
+  assert.deepEqual(sounds, ['playerShot', 'bossEnter']);
   assert.deepEqual(game.enemies.map(enemy => enemy.sprite), [stages[stage].id]);
   assert.equal(game.player.hp, game.player.maxHp);
   assert.equal(game.elapsed, 0);
@@ -91,6 +105,7 @@ game.step(dt);
 assert.equal(game.enemyBullets.length, 0);
 assert.equal(game.player.hp, 5);
 assert.equal(game.playerBullets.length, 1);
+assert.deepEqual(sounds, ['shield', 'playerShot', 'absorb']);
 game.state = 'paused';
 const previous = [game.elapsed, game.pet.cooldownRemaining, game.pet.effectRemaining];
 game.step(5);
@@ -112,6 +127,7 @@ assert.equal(game.activatePetSkill(), true);
 assert.equal(game.player.fireRate, 1.3);
 game.step(dt);
 assert.equal(game.playerBullets.length, 3);
+assert.deepEqual(sounds, ['rapid-fire', 'playerShot']);
 near(game.playerBullets[0].damage, 1.2);
 assert.ok(game.playerBullets[0].width > new PlayerBullet(0, 0).width);
 game.pet.update(5, game.player);
