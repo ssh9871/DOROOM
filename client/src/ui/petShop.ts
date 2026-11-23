@@ -1,4 +1,24 @@
 import { shopItems, type PetState } from '../pets/pets';
+import { getShopItems, getInventory, getMe, buyItem } from '../api/shop';
+import type { Item } from '../../../shared/types';
+
+// 🟩 [펫 상점] 탭은 서버 데이터 사용 (창규). 나머지 탭은 아직 브라우저 저장 데이터(PetState).
+const itemArtPath: Record<string, string> = { FOOD: '/assets/items/pet-food.svg', TOY: '/assets/items/pet-ball.svg' };
+const itemEmoji: Record<string, string> = { SNACK: '🍪', EXP_POTION: '🧪', EVOLVE_STONE: '💎', GAME_BUFF: '⚡' };
+const itemArt = (item: Item) => itemArtPath[item.itemType]
+  ? `<img src="${itemArtPath[item.itemType]}" alt="${item.name} 모양"/>`
+  : `<span aria-hidden="true" style="font-size:72px;line-height:1">${itemEmoji[item.itemType] ?? '📦'}</span>`;
+const itemDescription = (item: Item) => {
+  const effects = [
+    item.hungerRestore > 0 ? `배고픔 +${item.hungerRestore}` : '',
+    item.affectionRestore > 0 ? `호감도 +${item.affectionRestore}` : '',
+    item.expGain > 0 ? `경험치 +${item.expGain}` : '',
+  ].filter(Boolean);
+  if (effects.length) return `${effects.join(' · ')}. 1개씩 사용해요.`;
+  if (item.itemType === 'EVOLVE_STONE') return '펫을 진화시킬 때 사용해요.';
+  if (item.itemType === 'GAME_BUFF') return '미니게임을 시작할 때 사용해요.';
+  return '';
+};
 
 const tabs = ['펫 뽑기', '펫 스킨', '펫 상점', '펫 성장', '상호작용'];
 
@@ -8,12 +28,19 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   const result = dialog.querySelector<HTMLElement>('#shop-result')!;
   let activeTab = 2;
   let selectedPetId = state.pet.id;
+  // 서버에서 불러온 값
+  let serverItems: Item[] = [];
+  let owned: Record<number, number> = {};
+  let balance: number | null = null;
+  let loading = true;
+  let loadError = '';
   tabList.innerHTML = tabs.map((label, index) => `<button role="tab" id="shop-tab-${index}" aria-controls="shop-panel" data-tab="${index}">${label}</button>`).join('');
   const refresh = () => {
     const pet = state.pet;
     const user = state.user;
-    dialog.querySelector('#shop-wallet')!.innerHTML = `<span class="cell-icon" aria-hidden="true">⬡</span> ${user.cells.toLocaleString()}`;
-    dialog.querySelector('#shop-wallet')!.setAttribute('aria-label', `보유 ${user.cells.toLocaleString()} 셀`);
+    const cellText = balance === null ? '…' : balance.toLocaleString();
+    dialog.querySelector('#shop-wallet')!.innerHTML = `<span class="cell-icon" aria-hidden="true">⬡</span> ${cellText}`;
+    dialog.querySelector('#shop-wallet')!.setAttribute('aria-label', `보유 ${cellText} 셀`);
     dialog.querySelector('#shop-save-notice')!.textContent = !state.persistent ? '저장할 수 없어요. 새로고침하면 변경 사항이 사라질 수 있어요.' : state.recovered ? '저장 데이터의 잘못된 값을 기본값으로 복구했어요.' : '';
     tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((tab, index) => {
       tab.setAttribute('aria-selected', String(index === activeTab));
@@ -26,10 +53,47 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     if (activeTab < 2) {
       panel.innerHTML = `<div class="shop-coming">${activeTab === 0 ? '<div class="shop-egg" aria-hidden="true">?</div>' : preview}<h3>${tabs[activeTab]}</h3><p>새로운 만남을 준비하고 있어요.</p><button disabled>${activeTab === 0 ? '펫 뽑기 준비 중' : '스킨 적용 준비 중'}</button></div>`;
     } else if (activeTab === 2) {
-      panel.innerHTML = `<div class="shop-intro"><h3>작은 선물, 더 가까운 사이</h3><p>사료와 장난감으로 펫을 돌봐주세요.</p></div><div class="shop-items">${shopItems.map(item => `<article class="shop-item"><div class="shop-item-art"><img src="${item.previewPath}" alt="${item.name} 모양"/></div><h3>${item.name}</h3><p>${item.description}</p><span>보유 ${user.items[item.id]}개</span><strong aria-label="${item.price} 셀"><span class="cell-icon" aria-hidden="true">⬡</span> ${item.price.toLocaleString()}</strong><button id="buy-${item.id}" data-buy="${item.id}">1개 구매</button></article>`).join('')}</div>`;
+      const intro = `<div class="shop-intro"><h3>작은 선물, 더 가까운 사이</h3><p>사료와 장난감으로 펫을 돌봐주세요.</p></div>`;
+      if (loadError) {
+        panel.innerHTML = `${intro}<p>${loadError}</p><button id="shop-reload" data-reload>다시 불러오기</button>`;
+      } else if (loading) {
+        panel.innerHTML = `${intro}<p>상품을 불러오고 있어요.</p>`;
+      } else {
+        panel.innerHTML = `${intro}<div class="shop-items">${serverItems.map(item => `<article class="shop-item"><div class="shop-item-art">${itemArt(item)}</div><h3>${item.name}</h3><p>${itemDescription(item)}</p><span>보유 ${owned[item.itemId] ?? 0}개</span><strong aria-label="${item.priceCell} 셀"><span class="cell-icon" aria-hidden="true">⬡</span> ${item.priceCell.toLocaleString()}</strong><button id="buy-${item.itemId}" data-buy="${item.itemId}" ${balance !== null && balance < item.priceCell ? 'disabled' : ''}>1개 구매</button></article>`).join('')}</div>`;
+      }
     } else {
       panel.innerHTML = `<div class="shop-care">${selector}<section class="shop-care-detail">${preview}${progress}${activeTab === 3 ? `<p>다음 레벨 성장 비용 <strong aria-label="${state.growthCost} 셀"><span class="cell-icon" aria-hidden="true">⬡</span> ${state.growthCost.toLocaleString()}</strong></p><button id="grow-pet" data-grow ${state.canGrow ? '' : 'disabled'}>한 단계 성장</button><small>${state.pet.experience < state.requiredExperience ? '경험치가 가득 차야 성장할 수 있어요.' : state.user.cells < state.growthCost ? '성장에 필요한 셀이 부족해요.' : '성장하면 경험치가 0으로 초기화돼요.'}</small><small>미니게임에서 적을 정화하고 귀환하거나 클리어하면 경험치를 받아요.</small>` : `<dl class="shop-stats"><div><dt>배고픔</dt><dd>${pet.hunger}/100</dd></div><div><dt>호감도</dt><dd>${pet.affection}/100</dd></div></dl><small>배고픔 수치가 높을수록 배가 부른 상태예요.</small><div class="shop-actions">${shopItems.map(item => `<button id="use-${item.id}" data-use="${item.id}" ${!user.items[item.id] || (item.type === 'food' ? pet.hunger : pet.affection) >= 100 ? 'disabled' : ''}>${item.type === 'food' ? '밥주기' : '놀아주기'}<small>${item.name} ${user.items[item.id]}개 · 1개 소모</small></button>`).join('')}</div><small>수치가 가득 차면 아이템을 소모하지 않아요.</small>`}</section></div>`;
     }
+  };
+  // 서버에서 상품·보유 개수·셀 잔액을 한 번에 불러오기
+  const loadServer = async () => {
+    try {
+      const [items, inventory, me] = await Promise.all([getShopItems(), getInventory(), getMe()]);
+      serverItems = items;
+      owned = Object.fromEntries(inventory.items.map(entry => [entry.item.itemId, entry.quantity]));
+      balance = me.cellBalance;
+      loadError = '';
+    } catch (error) {
+      loadError = error instanceof Error ? error.message : '서버에 연결할 수 없어요.';
+    }
+    loading = false;
+    refresh();
+  };
+  // 구매: 서버가 셀 차감·아이템 지급을 처리하고, 바뀐 잔액·보유 개수를 돌려줌
+  const purchase = async (button: HTMLButtonElement) => {
+    const itemId = Number(button.dataset.buy);
+    button.disabled = true;
+    try {
+      const bought = await buyItem(itemId, 1);
+      balance = bought.balance;
+      owned[itemId] = bought.item.quantity;
+      result.textContent = `${bought.item.item.name} 1개를 구매했어요.`;
+    } catch (error) {
+      result.textContent = error instanceof Error ? error.message : '구매하지 못했어요.';
+    }
+    refresh();
+    onChange();
+    panel.querySelector<HTMLButtonElement>(`#buy-${itemId}`)?.focus();
   };
   const selectTab = (index: number) => { activeTab = index; result.textContent = ''; refresh(); panel.scrollTop = 0; };
   tabList.addEventListener('click', event => {
@@ -47,7 +111,8 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     if (!button || button.disabled) return;
     let message: string | undefined;
     if (button.dataset.pet === state.pet.id) selectedPetId = button.dataset.pet;
-    else if (button.dataset.buy) message = state.buy(button.dataset.buy);
+    else if (button.dataset.buy) { void purchase(button); return; }
+    else if (button.hasAttribute('data-reload')) { loading = true; refresh(); void loadServer(); return; }
     else if (button.dataset.use) message = state.interact(selectedPetId, button.dataset.use);
     else if (button.hasAttribute('data-grow')) message = state.grow(selectedPetId);
     if (message) {
@@ -59,5 +124,5 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
       result.textContent = message;
     }
   });
-  return () => { selectTab(2); dialog.showModal(); };
+  return () => { selectTab(2); dialog.showModal(); void loadServer(); };
 }
