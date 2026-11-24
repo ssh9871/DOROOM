@@ -27,6 +27,8 @@ export type RunOutcome = 'clear' | 'return' | 'abort';
 export type RunResult = Pick<RunSetup, 'mode' | 'stage'> & {
   id: string; outcome: RunOutcome; seconds: number; purified: number; completedAt: number;
   reachedWave?: number; bossTimeout?: boolean; bossPractice?: boolean;
+  /** 무한 모드: 보스를 정화한 구역 번호(0부터) / 도달한 구역 수(1부터) */
+  clearedAreas?: number[]; reachedZone?: number;
 };
 export type RankedRun = { id: string; score: number; completedAt: number };
 

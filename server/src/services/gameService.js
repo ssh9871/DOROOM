@@ -20,6 +20,27 @@ export const VALIDATION = {
   maxKillsPerSecond: 20,
   maxWave: 9999,
 };
+// 무한 모드 구역 규칙 — client/src/game/endless.ts 의 ENDLESS 와 같은 값이어야 함
+export const ENDLESS_RULE = {
+  zoneSeconds: 90,           // 구역 진입 후 보스 등장까지(초) → 구역 k 보스는 빨라도 (k+1)*90초 이후에 정화 가능
+  zoneClearBonus: 50,        // 구역 k(0부터) 보스 정화 보너스 = 50 × (k + 1)
+};
+export const zoneBonusScore = (clearedAreas) =>
+  clearedAreas.reduce((sum, area) => sum + ENDLESS_RULE.zoneClearBonus * (area + 1), 0);
+
+/** clearedAreas 검증: 0 이상 정수, 오름차순·중복 없음, 생존 시간 안에 도달 가능한 구역만 */
+export function validateClearedAreas(raw, survivalMs) {
+  if (raw == null) return [];
+  if (!Array.isArray(raw) || raw.length > 1000) throw new AppError('VALIDATION', 'clearedAreas 는 배열');
+  const reachable = Math.floor(survivalMs / 1000 / ENDLESS_RULE.zoneSeconds);   // 이만큼의 구역 보스까지 등장 가능
+  raw.forEach((area, i) => {
+    if (!Number.isInteger(area) || area < 0) throw new AppError('VALIDATION', 'clearedAreas 는 0 이상 정수');
+    if (i > 0 && area <= raw[i - 1]) throw new AppError('VALIDATION', 'clearedAreas 는 오름차순·중복 없음');
+    if (area + 1 > reachable) throw new AppError('VALIDATION', '생존 시간으로 도달할 수 없는 구역입니다');
+  });
+  return raw;
+}
+
 export const ENDLESS_UNLOCK_STAGE_NO = 12;  // 4-3 클리어 시 무한모드 해금
 export const TOTAL_STAGES = 12;
 // ────────────────────────────────────────────────────────────
@@ -143,9 +164,10 @@ export async function startGame(client, userId, { mode, stageNo, userPetId, buff
 }
 
 /** 점수 계산 (서버만) */
-export function calcScore({ survivalMs, killCount, cleared }, stage) {
+export function calcScore({ survivalMs, killCount, cleared, clearedAreas = [] }, stage) {
   return Math.floor(survivalMs / 1000) * SCORE.perSecond + killCount * SCORE.perKill
-       + (cleared && stage ? stage.clear_bonus_score : 0);
+       + (cleared && stage ? stage.clear_bonus_score : 0)
+       + zoneBonusScore(clearedAreas);
 }
 
 /**
@@ -173,6 +195,8 @@ export async function finishGame(client, userId, runId, body) {
     throw new AppError('VALIDATION', '처치 수가 비정상입니다');
   if (reachedWave > VALIDATION.maxWave) throw new AppError('VALIDATION', 'reachedWave 비정상');
   if (run.mode === 'ENDLESS' && cleared) throw new AppError('VALIDATION', '무한 모드에는 클리어가 없습니다');
+  if (run.mode === 'STAGE' && body.clearedAreas?.length) throw new AppError('VALIDATION', 'clearedAreas 는 무한 모드 전용');
+  const clearedAreas = run.mode === 'ENDLESS' ? validateClearedAreas(body.clearedAreas, survivalMs) : [];
 
   let stage = null;
   if (run.mode === 'STAGE') {
@@ -180,7 +204,7 @@ export async function finishGame(client, userId, runId, body) {
   }
 
   // 점수·보상 계산
-  const score = calcScore({ survivalMs, killCount, cleared }, stage);
+  const score = calcScore({ survivalMs, killCount, cleared, clearedAreas }, stage);
   const scoreCells = Math.floor(score / REWARD.scoreCellDivisor);
   const scoreRewardCell = stage ? scoreCells : 0;
   let rewardCell = scoreCells, firstClearBonus = 0;

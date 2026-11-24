@@ -100,7 +100,11 @@ export interface GameStart {
   runId: number | null; practice: boolean; mode: GameMode; stageNo: number | null; stage: Stage | null;
   pet: Pet; combatStats: CombatStats; upgrades: StatUpgrade[]; appliedBuffs: Item[];
 }
-export interface GameFinishRequest { survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; reviveUsed: boolean; }
+export interface GameFinishRequest {
+  survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; reviveUsed: boolean;
+  /** ENDLESS 전용: 보스를 정화한 구역 번호(0부터, 오름차순). 서버가 구역 보너스를 다시 계산·검증 */
+  clearedAreas?: number[];
+}
 export interface GameResult {
   runId: number;
   replayed: boolean;     // true 면 이미 확정된 결과를 다시 돌려준 것 (보상 재지급 없음)

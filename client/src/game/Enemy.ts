@@ -47,6 +47,8 @@ export function waveSize(sprite: string, stage: string, zone: number): number {
 
 export class Enemy {
   alive = true;
+  /** 처치되지 않고 화면 아래로 빠져나감 (페널티 판정용) */
+  escaped = false;
   readonly width: number;
   readonly height: number;
   readonly maxHp: number;
@@ -110,7 +112,7 @@ export class Enemy {
     this.attackFlash = Math.max(0, this.attackFlash - dt);
     this.reinforceFlash = Math.max(0, this.reinforceFlash - dt);
     this.move(dt, target);
-    if (this.kind === 'normal' && this.y - this.height / 2 > WORLD.height) { this.alive = false; return; }
+    if (this.kind === 'normal' && this.y - this.height / 2 > WORLD.height) { this.alive = false; this.escaped = true; return; }
     const fireLine = this.kind === 'normal' ? 35 : this.kind === 'elite' ? 105 : 140;
     if (this.y < fireLine || this.y > 580) return;
     if (this.kind === 'boss' && this.sprite === '4-3' && this.hp <= this.maxHp / 2 && !this.phaseTwo) {

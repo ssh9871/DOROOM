@@ -2,6 +2,7 @@ import { Game } from '../game/Game';
 import { MinigameAudio, zoneMusic } from '../game/audio';
 import { asset, areaImage, drawSprite, loadBattle, loadSprite } from '../game/sprites';
 import { endlessStages, operations, speakers, stages, type Dialogue } from '../game/stages';
+import { endlessStagePool, totalZoneBonus } from '../game/endless';
 import { BOSS_TIME_LIMIT, skills, upgradeIds, upgrades, type Levels, type RunResult, type RunSetup, type SkillId, type UpgradeId } from '../game/progress';
 import { battlePets, battlePetStats } from '../game/petCatalog';
 import type { GameResult, Pet, StageList, StatUpgrade } from '../../../shared/types';
@@ -148,10 +149,13 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     const key = active.mode === 'endless' ? 'endless' : current.id;
     const skill = game.pet.skill;
     write(mode, active.mode === 'endless' ? '무한 모드' : '스테이지 모드');
-    write(area, active.mode === 'endless' ? operations[current.zone]! : `${current.id} ${current.name}`);
+    const info = game.endlessInfo;
+    write(area, active.mode === 'endless'
+      ? `구역 ${info.zone} · ${operations[current.zone]!} (${info.loop}회차 · 위험도 ${info.tier})`
+      : `${current.id} ${current.name}`);
     write(time, clock(game.elapsed));
     write(hp, `${game.player.hp} / ${game.player.maxHp} HP`);
-    write(score, sortieScore(game.elapsed, game.purified).toLocaleString());
+    write(score, (sortieScore(game.elapsed, game.purified) + game.zoneBonusScore).toLocaleString());
     write(best, (bestScores[key] ?? 0).toLocaleString());
     const cooldown = Math.ceil(game.pet.cooldownRemaining);
     const effect = Math.ceil(game.pet.effectRemaining);
@@ -164,11 +168,14 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       warning.hidden = !game.warning;
       warning.replaceChildren();
       if (game.warning) {
-        if (game.state === 'playing' && game.warning !== 'boss-in')
+        const zoneChange = game.warning === 'zone-clear';
+        // 구역 전환은 보스 정화 때 이미 victory 효과음이 나므로 경고음 생략
+        if (game.state === 'playing' && game.warning !== 'boss-in' && !zoneChange)
           audio.effect(game.warning === 'boss' ? 'bossWarning' : 'eliteWarning');
-        warning.insertAdjacentHTML('afterbegin', icon(game.warning === 'elite' ? 'hud-elite' : 'hud-boss'));
+        warning.insertAdjacentHTML('afterbegin', icon(zoneChange ? 'mode-endless' : game.warning === 'elite' ? 'hud-elite' : 'hud-boss'));
         warning.append({
           elite: '엘리트 접근 중', boss: '보스 접근 중', 'boss-in': '보스 등장',
+          'zone-clear': `정화 성공 +${totalZoneBonus(game.clearedAreas.slice(-1))}점 · 구역 ${info.zone} ${operations[current.zone]!} 진입`,
         }[game.warning]);
       }
     }
@@ -324,7 +331,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     retry = isRetry;
     const stage = stages[index]!;
     show(panel(stage.name, `<p role="status">출동을 준비하는 중…</p>${button('exit', '돌아가기')}`), areaImage(stage.zone, 'map'));
-    const used = runMode === 'endless' ? endlessStages.map(i => stages[i]!) : [stage];
+    const used = runMode === 'endless' ? endlessStagePool.map(i => stages[i]!) : [stage];
     try {
       await loadBattle(used);
       if (disposed) return;
@@ -445,6 +452,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
         official = await api.finish(id, {
           survivalMs: Math.round(run.seconds * 1000), killCount: run.purified,
           reachedWave: run.reachedWave ?? 0, cleared: run.outcome === 'clear', reviveUsed: false,
+          ...(run.mode === 'endless' && { clearedAreas: run.clearedAreas ?? [] }),
         });
         const key = run.mode === 'stage' ? stages[run.stage]!.id : 'endless';
         bestScores[key] = Math.max(bestScores[key] ?? 0, official.score);
@@ -502,11 +510,12 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       </dl>
     </div>` : `<dl class="mg-tally"><dt>생존 시간</dt><dd>${clock(run.seconds)}</dd>
       <dt>정화 수</dt><dd>${run.purified}기</dd>
+      ${run.mode === 'endless' ? `<dt>도달 구역</dt><dd>${run.reachedZone ?? 1}구역 (보스 정화 ${run.clearedAreas?.length ?? 0}회)</dd>` : ''}
       ${official ? `<dt>최종 점수</dt><dd>${official.score}점</dd>
         <dt>출동 보상</dt><dd>${official.rewardCell}셀</dd>
         <dt>첫 클리어 보상</dt><dd>${official.firstClearBonus}셀</dd>
         <dt>펫 경험치</dt><dd>${official.expGained}</dd>`
-        : debug && run.outcome !== 'abort' ? `<dt>연습 점수</dt><dd>${sortieScore(run.seconds, run.purified) + (run.outcome === 'clear' ? clearBonus : 0)}점</dd>` : ''}</dl>`;
+        : debug && run.outcome !== 'abort' ? `<dt>연습 점수</dt><dd>${sortieScore(run.seconds, run.purified) + (run.outcome === 'clear' ? clearBonus : 0) + totalZoneBonus(run.clearedAreas ?? [])}점</dd>` : ''}</dl>`;
     show(panel(title, `
       <p>${run.mode === 'stage' ? `${stage.id} ${stage.name}` : '무한 모드'}</p>
       ${debug ? '<p>디버그 연습 · 기록과 보상 제외</p>' : ''}

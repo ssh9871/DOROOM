@@ -17,6 +17,7 @@ const { battlePets, battlePetStats } = await import('./petCatalog.ts');
 const { petGearLabels, petGearSlots } = await import('../ui/petGear.ts');
 const { canEnterEndless, canEnterStage, endlessStages, stages } = await import('./stages.ts');
 const { WORLD } = await import('./config.ts');
+const { ENDLESS, endlessDifficulty, endlessStageIndex, endlessStagePool, totalZoneBonus, zoneBonus } = await import('./endless.ts');
 
 const dt = 1 / 60;
 const ctx = { fillRect() {} };
@@ -94,6 +95,32 @@ assert.equal(canEnterStage(12, {}, true), false);
 assert.equal(canEnterEndless({}, false), false);
 assert.equal(canEnterEndless({}, true), true);
 assert.equal(canEnterEndless({ '4-3': true }, false), true);
+
+// 처치 못 한 일반 몹이 화면 아래로 빠져나가면 HP 1 감소 (여러 마리 동시여도 1회, 무적·보호막 중엔 없음)
+{
+  const escape = (...xs) => {
+    game.enemies = xs.map(x => { const e = new Enemy('normal', 'patrol-drone', x); e.y = WORLD.height + 200; return e; });
+    game.step(0);
+  };
+  start();
+  escape(120, 240, 360);
+  assert.equal(game.player.hp, 4);
+  assert.ok(game.enemies.every(e => !e.escaped && e.y < WORLD.height));
+  assert.equal(game.purified, 0);
+  escape(240);  // 무적 2초 안
+  assert.equal(game.player.hp, 4);
+  start();
+  game.activatePetSkill();  // 보호막
+  escape(240);
+  assert.equal(game.player.hp, 5);
+  start();
+  const elite = new Enemy('elite', game.stage.elite ?? 'patrol-drone', 240);
+  elite.y = 120;
+  game.enemies = [elite];
+  game.step(0);
+  assert.equal(game.player.hp, 5);
+  assert.equal(elite.escaped, false);
+}
 
 start();
 assert.equal(game.player.hp, 5);
@@ -511,22 +538,63 @@ assert.equal(game.player.hp, 5);
 assert.equal(game.potions.length, 0);
 
 start({ mode: 'endless', stage: endlessStages[0] });
-for (let area = 0; area < 4; area++) {
-  assert.equal(game.stage.id, stages[endlessStages[area]].id);
-  game.areaTime = 300;
+// 1회차는 기획서 편성(1-3, 2-3, 3-3, 4-1) 그대로, 배경 구역은 1→2→3→4→1→… 반복
+const zonesSeen = [];
+for (let area = 0; area < 8; area++) {
+  if (area < 4) assert.equal(game.stage.id, stages[endlessStages[area]].id);
+  zonesSeen.push(game.stage.zone);
+  assert.equal(game.endlessInfo.zone, area % 4 + 1);
+  assert.equal(game.endlessInfo.loop, Math.floor(area / 4) + 1);
+  game.areaTime = ENDLESS.zoneSeconds;
   game.step(0);
+  assert.equal(game.boss.sprite, game.stage.id);
+  assert.equal(game.bossTimeLeft, undefined);
   game.boss.y = 140;
   game.boss.hp = 1;
   game.playerBullets.push(new PlayerBullet(game.boss.x, game.boss.y));
   game.step(0);
   assert.equal(game.areaTime, 0);
+  assert.equal(game.warning, 'zone-clear');
 }
-assert.equal(game.stage.id, '1-3');
-assert.equal(game.purified, 4);
+assert.deepEqual(zonesSeen, [0, 1, 2, 3, 0, 1, 2, 3]);
+assert.notEqual(game.stage.id, '1-3');  // 3회차는 같은 구역의 다른 지점 편성
+assert.deepEqual(game.clearedAreas, [0, 1, 2, 3, 4, 5, 6, 7]);
+assert.equal(game.zoneBonusScore, totalZoneBonus(game.clearedAreas));
+assert.equal(game.purified, 8);
+// 보스를 못 잡으면 제한 시간 없이 같은 구역에 머무름 (게임 오버도, 구역 전환도 없음)
+game.areaTime = ENDLESS.zoneSeconds;
+game.step(0);
+assert.ok(game.boss);
+assert.equal(game.bossTimeLeft, undefined);
+game.areaTime = ENDLESS.zoneSeconds + 600;
+game.boss.y = 140;
+game.step(0);
+assert.equal(game.state, 'playing');
+assert.equal(game.endlessInfo.area, 8);
+assert.ok(game.boss);
+assert.equal(game.clearedAreas.length, 8);
 game.abort();
 game.abort();
-assert.equal(results.length, 4);
 assert.equal(results.at(-1).outcome, 'abort');
+assert.equal(results.at(-1).reachedZone, 9);
+assert.deepEqual(results.at(-1).clearedAreas, [0, 1, 2, 3, 4, 5, 6, 7]);
+
+// 난이도는 구역·시간에 따라 줄지 않고 오르며, 상한·하한을 지킴
+let prevDiff;
+for (let area = 0; area < 20; area++) for (const t of [0, 30, 60, 120]) {
+  const d = endlessDifficulty(area, t);
+  if (prevDiff) for (const key of ['level', 'enemyHp', 'pace', 'bulletSpeed', 'shotLimit', 'bossHp'])
+    assert.ok(d[key] >= prevDiff[key] - 1e-9, `${key} decreased at area ${area}`);
+  if (prevDiff) assert.ok(d.spawnInterval <= prevDiff.spawnInterval + 1e-9);
+  assert.ok(d.pace <= 1.5 && d.bulletSpeed <= 1.25 && d.spawnInterval >= 0.9 && d.shotLimit <= 180);
+  prevDiff = d;
+}
+assert.ok(endlessDifficulty(4, 0).pace > endlessDifficulty(0, 0).pace);
+assert.ok(endlessDifficulty(0, 119).bulletSpeed > endlessDifficulty(0, 0).bulletSpeed);
+for (const index of endlessStagePool) assert.ok(stages[index]);
+for (let area = 0; area < 12; area++) assert.equal(stages[endlessStageIndex(area)].zone, area % 4);
+assert.equal(zoneBonus(0), ENDLESS.zoneClearBonus);
+assert.ok(zoneBonus(5) > zoneBonus(1));
 
 const handlers = new Map();
 globalThis.window = { addEventListener: (name, listener) => handlers.set(name, listener), removeEventListener: name => handlers.delete(name) };

@@ -1,18 +1,20 @@
 import { Background } from './Background';
 import type { SoundCue } from './audio';
 import { EnemyBullet, PlayerBullet } from './Bullet';
-import { BOSS_AT, ELITES, PLAYER, WORLD } from './config';
+import { BOSS_AT, ELITES, ENEMY_ESCAPE_PENALTY, PLAYER, WORLD } from './config';
 import { Effects } from './Effects';
 import { Enemy, isWideAttack, normalAttack, waveSize } from './Enemy';
+import { ENDLESS, endlessBossBaseHp, endlessDifficulty, endlessLoop, endlessStageIndex, endlessZone, totalZoneBonus, zoneBonus } from './endless';
 import { Input } from './Input';
 import { Pet } from './Pet';
 import { Player } from './Player';
-import { eliteSprites, endlessStages, stages } from './stages';
+import { eliteSprites, stages } from './stages';
 import { BOSS_TIME_LIMIT, type RunOutcome, type RunResult, type RunSetup } from './progress';
 import { drawSprite } from './sprites';
 import { circleRectOverlap, circlesOverlap, rectsOverlap } from './utils';
 
 export type GameState = 'ready' | 'playing' | 'paused' | 'gameover';
+export type ZoneNotice = 'zone-clear';
 const FIXED_DT = 1 / 60;
 const MAX_ENEMIES = 24;
 const STAGE_NORMAL_LIMIT = 18;
@@ -62,6 +64,11 @@ export class Game {
   private bossSummoned = false;
   private bossPractice = false;
   private bossDefeated?: Enemy;
+  /** 무한 모드: 보스를 정화한 구역 번호(0부터) */
+  clearedAreas: number[] = [];
+  /** 무한 모드: 구역 전환 안내 */
+  zoneNotice?: ZoneNotice;
+  private noticeTime = 0;
   private rafId = 0;
   private lastTime = 0;
   private accumulator = 0;
@@ -79,23 +86,35 @@ export class Game {
     ctx.imageSmoothingEnabled = false;
   }
 
-  get stage() { return stages[this.setup?.mode === 'endless' ? endlessStages[this.area % 4]! : this.setup?.stage ?? 0]!; }
+  get isEndless() { return this.setup?.mode === 'endless'; }
+  get stage() { return stages[this.isEndless ? endlessStageIndex(this.area) : this.setup?.stage ?? 0]!; }
+  /** 무한 모드 HUD용: 구역(1~4), 회차(1~), 위험도 */
+  get endlessInfo() {
+    return { area: this.area, zone: endlessZone(this.area) + 1, loop: endlessLoop(this.area) + 1,
+      tier: endlessDifficulty(this.area, this.areaTime).tier };
+  }
+  private get bossAt() { return this.isEndless ? ENDLESS.zoneSeconds : BOSS_AT; }
+  private get eliteTimes(): readonly number[] { return this.isEndless ? ENDLESS.elites : ELITES; }
   get boss() { return this.enemies.find(enemy => enemy.kind === 'boss'); }
   get canSkipToBoss() {
     return this.setup?.mode === 'stage' && this.state === 'playing' && !this.bossPhase;
   }
   get bossTimeLeft() {
-    if (this.bossPhase && !this.bossDefeated && this.setup?.mode === 'stage' && this.setup.stage > 0)
+    if (!this.bossPhase || this.bossDefeated || this.isEndless) return;  // 무한 모드 보스는 제한 시간 없음
+    if (this.setup?.mode === 'stage' && this.setup.stage > 0)
       return Math.max(0, BOSS_AT + BOSS_TIME_LIMIT - this.areaTime);
   }
   get score() {
     const seconds = this.setup?.mode === 'endless' ? this.elapsed : Math.min(this.elapsed, BOSS_AT);
     return this.purified * 10 + Math.floor(seconds + EPSILON);
   }
+  /** 무한 모드 구역 클리어 보너스 합계 (서버 ENDLESS_RULE 과 같은 공식) */
+  get zoneBonusScore() { return this.isEndless ? totalZoneBonus(this.clearedAreas) : 0; }
   get warning() {
-    if (this.bossPhase) return this.areaTime < BOSS_AT + 3 ? 'boss-in' : '';
-    if (this.areaTime >= BOSS_AT - 5) return 'boss';
-    const next = ELITES[this.eliteIndex];
+    if (this.zoneNotice && this.noticeTime > 0) return this.zoneNotice;
+    if (this.bossPhase) return this.areaTime < this.bossAt + 3 ? 'boss-in' : '';
+    if (this.areaTime >= this.bossAt - 5) return 'boss';
+    const next = this.eliteTimes[this.eliteIndex];
     return next !== undefined && this.areaTime >= next - 5 ? 'elite' : '';
   }
 
@@ -121,6 +140,9 @@ export class Game {
     this.area = this.elapsed = this.purified = 0;
     this.reachedWave = 0;
     this.bossPractice = false;
+    this.clearedAreas = [];
+    this.zoneNotice = undefined;
+    this.noticeTime = 0;
     this.player.reset(this.setup.levels, setup.petLevel, setup.pet);
     this.pet.reset(this.player, setup.skill, setup.pet);
     this.resetArea();
@@ -171,7 +193,7 @@ export class Game {
     return true;
   }
 
-  private resetArea(): void {
+  private resetArea(keepBackground = false): void {
     this.areaTime = this.eliteIndex = this.waveIndex = this.waveTimer = 0;
     this.enterFromLeft = true;
     this.enemies = [];
@@ -181,8 +203,10 @@ export class Game {
     this.bossPhase = false;
     this.bossSummoned = false;
     this.bossDefeated = undefined;
-    this.effects.clear();
-    this.background.reset();
+    if (!keepBackground) {
+      this.effects.clear();
+      this.background.reset();
+    }
   }
 
   private readonly frame = (now: number): void => {
@@ -228,17 +252,18 @@ export class Game {
     this.player.update(dt, this.input, bullet => this.playerBullets.push(bullet), () => this.sound?.('playerShot'));
     this.spawn(dt);
 
+    this.noticeTime = Math.max(0, this.noticeTime - dt);
     const isStage = this.setup.mode === 'stage';
-    const pace = isStage ? 0.7 + this.setup.stage * 0.01
-      : 1 + Math.min(0.5, Math.floor(this.area / 4) * 0.1);
-    const bulletSpeed = isStage ? 0.7 + this.setup.stage * 0.014 : 1;
+    const endless = endlessDifficulty(this.area, this.areaTime);
+    const pace = isStage ? 0.7 + this.setup.stage * 0.01 : endless.pace;
+    const bulletSpeed = isStage ? 0.7 + this.setup.stage * 0.014 : endless.bulletSpeed;
     // Give waiting shooters a turn even when a wide volley takes longer than their cooldown.
     const enemies = this.enemies.slice().sort((a, b) =>
       Number(b.kind === 'boss') - Number(a.kind === 'boss') || b.timeSinceAttack - a.timeSinceAttack);
     let activeShooters = enemies.filter(enemy => enemy.isShooter && enemy.isFiring).length;
     let wideInFlight = this.enemyBullets.some(bullet => bullet.wide);
     for (const enemy of enemies) {
-      const shotLimit = isStage ? 48 : MAX_SHOTS;
+      const shotLimit = isStage ? 48 : Math.min(MAX_SHOTS, endless.shotLimit);
       const shooting = enemy.isFiring;
       const canStart = (!enemy.isShooter || activeShooters < 2)
         && (!isWideAttack(enemy.nextAttack) || !wideInFlight);
@@ -249,6 +274,9 @@ export class Game {
         }, () => this.reinforce(enemy.x), () => { this.enemyBullets = []; }, pace, bulletSpeed, canStart, this.sound);
       if (enemy.isShooter && !shooting && enemy.timeSinceAttack === 0) activeShooters++;
     }
+    // 처치 못 한 몹이 아래로 빠져나가면 HP 1 감소 (같은 프레임에 여러 마리여도 1회, 무적·보호막 규칙 동일)
+    const escaped = enemies.find(enemy => enemy.escaped);
+    if (ENEMY_ESCAPE_PENALTY && escaped) this.damagePlayer(escaped.x, WORLD.height - 12);
 
     for (const bullet of this.playerBullets) bullet.update(dt, WORLD.width, WORLD.height);
     for (const bullet of this.enemyBullets) bullet.update(dt, WORLD.width, WORLD.height, this.player);
@@ -262,12 +290,12 @@ export class Game {
     if (areaCleared) this.enemies = [];
     if (areaCleared && this.setup.mode === 'stage') this.endRun('clear');
     else if (this.player.hp <= 0) this.endRun('return');
-    else if (this.bossTimeLeft !== undefined && this.bossTimeLeft <= EPSILON) this.endRun('return', true);
     else if (areaCleared) {
+      // 무한 모드: 보스를 정화해야만 다음 구역으로 (제한 시간 없음)
       this.sound?.('victory');
-      this.area++;
-      this.resetArea();
-    } else if (!this.bossSummoned && this.areaTime + EPSILON >= BOSS_AT + 20) {
+      this.advanceZone();
+    } else if (this.bossTimeLeft !== undefined && this.bossTimeLeft <= EPSILON) this.endRun('return', true);
+    else if (!this.bossSummoned && this.areaTime + EPSILON >= this.bossAt + (this.isEndless ? ENDLESS.bossReinforceAfter : 20)) {
       const boss = this.boss;
       if (boss) {
         this.bossSummoned = true;
@@ -277,38 +305,50 @@ export class Game {
     }
   }
 
+  /** 무한 모드: 보스 정화 후 다음 구역으로. 배경은 크로스페이드, 생존 시간·정화 수는 이어짐 */
+  private advanceZone(): void {
+    const previous = this.stage;
+    this.clearedAreas.push(this.area);
+    this.area++;
+    this.resetArea(true);
+    this.background.transition(previous);
+    this.zoneNotice = 'zone-clear';
+    this.noticeTime = ENDLESS.noticeSeconds;
+  }
+
   private spawn(dt: number): void {
     const stage = this.stage;
-    const difficulty = 1 + Math.min(2, Math.floor(this.area / 4) * 0.2);
-    const stageIndex = this.setup?.mode === 'stage' ? this.setup.stage : this.area % 4 * 3 + 1;
+    const isStage = this.setup?.mode === 'stage';
+    const endless = endlessDifficulty(this.area, this.areaTime);
+    const difficulty = isStage ? 1 : endless.enemyHp;
+    const stageIndex = isStage ? this.setup!.stage : 0;
     if (this.bossPhase) return;
-    if (this.areaTime + EPSILON >= BOSS_AT) {
-      const bossHp = stageIndex === 0 ? 160 : 375 + (this.setup?.mode === 'stage' ? 32 : 46) * (stageIndex - 1);
-      this.enemies = [new Enemy('boss', stage.id, WORLD.width / 2, stage.boss, difficulty, bossHp, { stage: stage.id })];
+    if (this.areaTime + EPSILON >= this.bossAt) {
+      const bossHp = isStage ? (stageIndex === 0 ? 160 : 375 + 32 * (stageIndex - 1)) : endlessBossBaseHp(this.area);
+      this.enemies = [new Enemy('boss', stage.id, WORLD.width / 2, stage.boss, isStage ? 1 : endless.bossHp, bossHp, { stage: stage.id })];
       this.enemyBullets = [];
       this.bossPhase = true;
       this.sound?.('bossEnter');
       return;
     }
-    const next = ELITES[this.eliteIndex];
+    const next = this.eliteTimes[this.eliteIndex];
     if (next !== undefined && this.areaTime + EPSILON >= next) {
-      const lane = [85, 395, 145, 335][this.eliteIndex]!;
-      const health = difficulty * (this.setup?.mode === 'stage' ? 1 + stageIndex * 0.045 : 1);
+      const lane = [85, 395, 145, 335][this.eliteIndex % 4]!;
+      const health = isStage ? 1 + stageIndex * 0.045 : endless.eliteHp;
       this.enemies.push(new Enemy('elite', eliteSprites[stage.zone]!, lane, stage.elite, health, undefined, { stage: stage.id }));
       this.eliteIndex++;
     }
     this.waveTimer -= dt;
     if (this.waveTimer > EPSILON) return;
-    const isStage = this.setup?.mode === 'stage';
     this.waveTimer = isStage
       ? 3.4 - stageIndex * 0.065 - this.areaTime / 2400
-      : Math.max(1.05, 1.85 - stage.zone * 0.14 - this.areaTime / 1800);
+      : endless.spawnInterval;
     const sprite = stage.wave[this.waveIndex % stage.wave.length]!;
     const attack = normalAttack(sprite, stage.id);
     const count = waveSize(sprite, stage.id, stage.zone);
     if (!this.canSpawnNormals(count, attack ? count : 0, isWideAttack(attack) ? count : 0)) return;
 
-    const health = difficulty * (1 + stageIndex * (isStage ? 0.075 : 0.035));
+    const health = isStage ? 1 + stageIndex * 0.075 : difficulty;
     const left = this.enterFromLeft;
     for (let i = 0; i < count; i++) {
       const x = attack ? WORLD.width * (i + 0.5) / count : (left ? 60 : 420) + (i % 2) * (left ? 62 : -62);
@@ -325,7 +365,7 @@ export class Game {
     const live = this.enemies.filter(enemy => enemy.alive);
     const capacity = this.setup?.mode === 'stage'
       ? STAGE_NORMAL_LIMIT - live.filter(enemy => enemy.kind === 'normal').length
-      : MAX_ENEMIES - (this.bossPhase ? 0 : ELITES.length - this.eliteIndex) - live.length;
+      : MAX_ENEMIES - (this.bossPhase ? 0 : this.eliteTimes.length - this.eliteIndex) - live.length;
     return count <= capacity
       && shooters + live.filter(enemy => enemy.isShooter).length <= SHOOTER_LIMIT
       && wide + live.filter(enemy => enemy.isWideShooter).length <= WIDE_SHOOTER_LIMIT;
@@ -333,7 +373,7 @@ export class Game {
 
   private reinforce(x: number, sprites: readonly string[] = ['small-worker']): boolean {
     const stage = this.setup?.mode === 'stage' ? this.setup.stage : undefined;
-    const health = stage === undefined ? 1 : 1 + stage * 0.075;
+    const health = stage === undefined ? endlessDifficulty(this.area, this.areaTime).enemyHp : 1 + stage * 0.075;
     let spawned = false;
     for (let i = 0; i < 2; i++) {
       const sprite = sprites[i % sprites.length]!;
@@ -393,9 +433,9 @@ export class Game {
     });
   }
 
-  private damagePlayer(): void {
+  private damagePlayer(x = this.player.x, y = this.player.y): void {
     if (!this.player.takeDamage()) return;
-    this.effects.play('hit-spark', this.player.x, this.player.y);
+    this.effects.play('hit-spark', x, y);
     this.sound?.('damage');
   }
 
@@ -406,7 +446,8 @@ export class Game {
     this.render();
     const seconds = Math.round(this.elapsed * 1e8) / 1e8;
     this.finish({ id: this.id, mode: this.setup.mode, stage: this.setup.stage, outcome, seconds,
-      purified: this.purified, reachedWave: this.reachedWave, completedAt: Date.now(), bossTimeout, bossPractice: this.bossPractice });
+      purified: this.purified, reachedWave: this.reachedWave, completedAt: Date.now(), bossTimeout, bossPractice: this.bossPractice,
+      ...(this.isEndless && { clearedAreas: [...this.clearedAreas], reachedZone: this.area + 1 }) });
   }
 
   private render(): void {
