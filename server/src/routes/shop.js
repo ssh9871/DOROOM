@@ -14,12 +14,18 @@ router.use(requireAuth);
 // 도로팜 상점에서 파는 아이템 종류. 경험치 포션(EXP_POTION)·게임 버프(GAME_BUFF)는 미니게임 안에서 판매 (11/23 석훈)
 // 아이템 자체는 DB에 그대로 있음 — 미니게임이 같은 item 표를 씀
 const DOROFARM_SHOP_TYPES = ['FOOD', 'SNACK', 'TOY', 'EVOLVE_STONE'];
+// 미니게임 상점 목록: 활성 입장 버프(무적·경험치·셀). 구매는 /shop/buy 가 아니라 출동 시작 때 결제 (11/26 석훈)
+const MINIGAME_SHOP_TYPES = ['GAME_BUFF'];
 
 // ① GET /shop/items → Item[]   도로팜 상점 판매 중인 아이템만, 종류 → 가격 순
+//    GET /shop/items?shop=minigame → 입장 버프 목록 (POST /game/start 의 entryBuffItemIds 로 선택)
 router.get('/items', wrap(async (req, res) => {
+  const shop = req.query.shop ?? 'dorofarm';
+  if (shop !== 'dorofarm' && shop !== 'minigame') throw new AppError('VALIDATION', 'shop 은 dorofarm 또는 minigame');
+  const types = shop === 'minigame' ? MINIGAME_SHOP_TYPES : DOROFARM_SHOP_TYPES;
   const { rows } = await pool.query(
     `SELECT * FROM item WHERE is_active AND item_type = ANY($1)
-      ORDER BY array_position($1::text[], item_type::text), price_cell, item_id`, [DOROFARM_SHOP_TYPES]);
+      ORDER BY array_position($1::text[], item_type::text), price_cell, item_id`, [types]);
   ok(res, rows.map(itemDto));
 }));
 

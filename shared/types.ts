@@ -93,12 +93,17 @@ export interface Stage {
 export interface StageList { stages: Stage[]; endlessUnlocked: boolean; }   // GET /stages
 
 export interface GameStartRequest {
-  mode: GameMode; stageNo?: number; userPetId: number; buffItemIds?: number[];
+  mode: GameMode; stageNo?: number; userPetId: number;
+  buffItemIds?: number[];       // 보유 버프 소모 (기존)
+  entryBuffItemIds?: number[];  // 미니게임 상점에서 고른 버프를 이번 출동에만 셀로 결제. buffItemIds 와 함께 쓰면 VALIDATION
+  startRequestId?: string;      // 유료 출동 중복 결제 방지 (8~64자 영문·숫자·-·_). 재시도 때는 같은 값
   practice?: boolean;   // true 면 기록·보상·랭킹 제외 (디버그 연습). runId 는 null
 }
 export interface GameStart {
   runId: number | null; practice: boolean; mode: GameMode; stageNo: number | null; stage: Stage | null;
   pet: Pet; combatStats: CombatStats; upgrades: StatUpgrade[]; appliedBuffs: Item[];
+  balance?: number;     // 유료 출동(entryBuffItemIds) 후 셀 잔액
+  replayed?: boolean;   // 같은 startRequestId 재전송 → 결제 없이 기존 출동을 돌려준 것
 }
 export interface GameFinishRequest {
   survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; reviveUsed: boolean;

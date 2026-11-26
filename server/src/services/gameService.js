@@ -106,9 +106,18 @@ export async function listStatUpgrades(db, userId) {
  * 게임 시작. practice=true 면 DB 기록 없이 능력치만 돌려줌 (디버그 연습: 전적·보상·랭킹 제외)
  * @returns GameStart
  */
-export async function startGame(client, userId, { mode, stageNo, userPetId, buffItemIds = [], practice = false }) {
+export async function startGame(client, userId, { mode, stageNo, userPetId, buffItemIds = [], entryBuffItemIds = [], startRequestId = null, practice = false }) {
   if (!['STAGE', 'ENDLESS'].includes(mode)) throw new AppError('VALIDATION', 'mode 는 STAGE 또는 ENDLESS');
   if (!Number.isInteger(userPetId)) throw new AppError('VALIDATION', 'userPetId 필요');
+  // 보유 버프 소모(buffItemIds)와 유료 선택(entryBuffItemIds)은 한 요청에 같이 쓸 수 없다
+  if (buffItemIds.length && entryBuffItemIds.length) {
+    throw new AppError('VALIDATION', 'buffItemIds 와 entryBuffItemIds 는 함께 보낼 수 없어요');
+  }
+  if (entryBuffItemIds.some(id => !Number.isInteger(id) || id <= 0)) throw new AppError('VALIDATION', 'entryBuffItemIds 오류');
+  if (startRequestId !== null && (typeof startRequestId !== 'string' || !/^[A-Za-z0-9_-]{8,64}$/.test(startRequestId))) {
+    throw new AppError('VALIDATION', 'startRequestId 는 8~64자 영문·숫자·-·_');
+  }
+  const paid = !practice && entryBuffItemIds.length > 0;   // 연습 모드는 기존대로 버프 없이, 결제 없이
 
   // 소유권 + 출전 가능 (둘 다 req.userId 기준)
   const pet = await getPet(client, userId, userPetId);            // 남의 펫이면 NOT_FOUND
@@ -132,17 +141,57 @@ export async function startGame(client, userId, { mode, stageNo, userPetId, buff
 
   const combatStats = await getPetCombatStats(client, userId, userPetId);
   const upgrades = await listStatUpgrades(client, userId);
+  const reply = (runId, appliedBuffs, extra = {}) => ({
+    runId, practice, mode, stageNo,
+    stage: stage ? stageDto({ ...stage, unlocked: true, cleared: false }) : null,
+    pet, combatStats, upgrades, appliedBuffs, ...extra,
+  });
 
-  // 버프 아이템 소모 (연습 모드에서는 소모하지 않음)
+  // ── 유료 입장 버프: 선택 검증 → 셀 차감 → 출동 기록을 한 트랜잭션으로 (11/26 석훈 요청) ──
+  if (paid) {
+    // 같은 사람의 출동 시작을 줄 세운다 (같은 요청 ID 동시 재전송 → 한 번만 결제)
+    await client.query('SELECT 1 FROM app_user WHERE user_id = $1 FOR UPDATE', [userId]);
+    if (startRequestId) {
+      const prev = await client.query(
+        'SELECT run_id, applied_buffs FROM game_run WHERE user_id = $1 AND start_request_id = $2', [userId, startRequestId]);
+      if (prev.rows.length) {                                    // 이미 성공한 같은 요청 → 결제 없이 그대로 돌려줌
+        const codes = (prev.rows[0].applied_buffs ?? []).map(b => b?.code).filter(Boolean);
+        const items = (await client.query('SELECT * FROM item WHERE code = ANY($1) ORDER BY item_id', [codes])).rows;
+        return reply(Number(prev.rows[0].run_id), items.map(buffDto), { balance: await getBalance(client, userId), replayed: true });
+      }
+    }
+    const ids = [...new Set(entryBuffItemIds)].sort((a, b) => a - b);
+    if (ids.length !== entryBuffItemIds.length) throw new AppError('VALIDATION', '같은 버프는 한 판에 한 번만 고를 수 있어요');
+    const { rows } = await client.query(
+      `SELECT * FROM item WHERE item_id = ANY($1) AND item_type = 'GAME_BUFF' AND is_active ORDER BY item_id`, [ids]);
+    if (rows.length !== ids.length) throw new AppError('VALIDATION', '판매 중인 입장 버프가 아닌 것이 있어요');
+    const types = rows.map(i => i.effect_config?.type);
+    if (new Set(types).size !== types.length) throw new AppError('VALIDATION', '같은 효과의 버프는 한 판에 하나만 고를 수 있어요');
+    // 결제: 버프마다 ITEM_PURCHASE + item_id 로 원장 기록. 보유 수량(user_item)은 건드리지 않는다
+    let balance = await getBalance(client, userId);
+    for (const i of rows) balance = await addCell(client, userId, -i.price_cell, 'ITEM_PURCHASE', i.item_id);  // 부족하면 NOT_ENOUGH_CELL → 전부 취소
+    const appliedBuffs = rows.map(buffDto);
+    const ins = await client.query(
+      `INSERT INTO game_run (user_id, user_pet_id, species_id, pet_level_snapshot, pet_stage_snapshot, mode, stage_no, status, applied_buffs, start_request_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, 'PLAYING', $8, $9) RETURNING run_id`,
+      [userId, userPetId, pet.species.speciesId, pet.level, pet.evolutionStage, mode, stageNo,
+       JSON.stringify(appliedBuffs.map(b => ({ code: b.code, itemId: b.itemId, effectConfig: b.effectConfig }))), startRequestId]);
+    return reply(Number(ins.rows[0].run_id), appliedBuffs, { balance });
+  }
+
+  // 버프 아이템 (서로 다른 효과는 함께 OK, 같은 효과는 한 판에 1개). 연습 모드에서는 소모하지 않음
   const appliedBuffs = [];
   if (!practice && buffItemIds.length) {
-    for (const itemId of buffItemIds) {
-      const { rows } = await client.query(`SELECT * FROM item WHERE item_id = $1 AND item_type = 'GAME_BUFF'`, [itemId]);
-      if (!rows.length) throw new AppError('VALIDATION', `게임 버프 아이템이 아닙니다: ${itemId}`);
-      await useItem(client, userId, itemId, 1);
-      const i = rows[0];
-      appliedBuffs.push({ itemId: i.item_id, code: i.code, name: i.name, itemType: i.item_type, priceCell: i.price_cell,
-        hungerRestore: i.hunger_restore, affectionRestore: i.affection_restore, expGain: i.exp_gain, effectConfig: i.effect_config ?? {} });
+    const ids = [...new Set(buffItemIds)].sort((a, b) => a - b);          // 같은 아이템 중복 제거, ID 순으로 차감
+    if (ids.length !== buffItemIds.length) throw new AppError('VALIDATION', '같은 버프는 한 판에 한 번만 쓸 수 있어요');
+    const { rows } = await client.query(
+      `SELECT * FROM item WHERE item_id = ANY($1) AND item_type = 'GAME_BUFF' ORDER BY item_id`, [ids]);
+    if (rows.length !== ids.length) throw new AppError('VALIDATION', '게임 버프 아이템이 아닌 것이 있어요');
+    const types = rows.map(i => i.effect_config?.type);
+    if (new Set(types).size !== types.length) throw new AppError('VALIDATION', '같은 효과의 버프는 한 판에 하나만 쓸 수 있어요');
+    for (const i of rows) {
+      await useItem(client, userId, i.item_id, 1);                      // 부족하면 NOT_ENOUGH_ITEM → 전부 취소
+      appliedBuffs.push(buffDto(i));
     }
   }
 
@@ -152,15 +201,27 @@ export async function startGame(client, userId, { mode, stageNo, userPetId, buff
       `INSERT INTO game_run (user_id, user_pet_id, species_id, pet_level_snapshot, pet_stage_snapshot, mode, stage_no, status, applied_buffs)
        VALUES ($1, $2, $3, $4, $5, $6, $7, 'PLAYING', $8) RETURNING run_id`,
       [userId, userPetId, pet.species.speciesId, pet.level, pet.evolutionStage, mode, stageNo,
-       JSON.stringify(appliedBuffs.map(b => b.code))]);
+       JSON.stringify(appliedBuffs.map(b => ({ code: b.code, itemId: b.itemId, effectConfig: b.effectConfig })))]);  // 종료 때 이 값으로 보상 계산
     runId = rows[0].run_id;
   }
 
-  return {
-    runId, practice, mode, stageNo,
-    stage: stage ? stageDto({ ...stage, unlocked: true, cleared: false }) : null,
-    pet, combatStats, upgrades, appliedBuffs,
-  };
+  return reply(runId, appliedBuffs);
+}
+
+const buffDto = (i) => ({ itemId: i.item_id, code: i.code, name: i.name, itemType: i.item_type, priceCell: i.price_cell,
+  hungerRestore: i.hunger_restore, affectionRestore: i.affection_restore, expGain: i.exp_gain, effectConfig: i.effect_config ?? {} });
+
+/**
+ * 출동 기록에 저장된 버프 → 보상 증가율(%).
+ * 예전 형식(코드 문자열 배열)이나 효과 설정이 없는 기록은 0% (기본 보상)
+ */
+export function buffBoosts(appliedBuffs) {
+  const list = Array.isArray(appliedBuffs) ? appliedBuffs : [];
+  const sum = (type) => list.reduce((acc, b) => {
+    const cfg = b && typeof b === 'object' ? b.effectConfig : null;
+    return acc + (cfg?.type === type && Number.isFinite(Number(cfg.percent)) ? Number(cfg.percent) : 0);
+  }, 0);
+  return { expPercent: sum('EXP_BOOST'), cellPercent: sum('CELL_BOOST') };
 }
 
 /** 점수 계산 (서버만) */
@@ -205,7 +266,9 @@ export async function finishGame(client, userId, runId, body) {
 
   // 점수·보상 계산
   const score = calcScore({ survivalMs, killCount, cleared, clearedAreas }, stage);
-  const scoreCells = Math.floor(score / REWARD.scoreCellDivisor);
+  const boost = buffBoosts(run.applied_buffs);
+  // 점수 기반 셀만 증가. 클리어 반복 보상·첫 클리어 보너스는 그대로
+  const scoreCells = Math.floor(score * (100 + boost.cellPercent) / (REWARD.scoreCellDivisor * 100));
   const scoreRewardCell = stage ? scoreCells : 0;
   let rewardCell = scoreCells, firstClearBonus = 0;
   if (stage && cleared) {
@@ -216,7 +279,7 @@ export async function finishGame(client, userId, runId, body) {
        ON CONFLICT (user_id, stage_no) DO NOTHING RETURNING stage_no`, [userId, run.stage_no, runId]);
     if (ins.rows.length) firstClearBonus = stage.first_clear_reward_cell;
   }
-  const expGained = Math.floor(score / REWARD.expDivisor);
+  const expGained = Math.floor(score * (100 + boost.expPercent) / (REWARD.expDivisor * 100));
 
   // 지급 (원장 기록; uq_cell_tx_reward_once 인덱스가 같은 run 의 중복 지급을 DB 차원에서 막음)
   if (rewardCell > 0) await addCell(client, userId, rewardCell, 'GAME_REWARD', runId);
