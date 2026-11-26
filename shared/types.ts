@@ -47,6 +47,8 @@ export interface PetDetail extends Pet {
   combatStats: CombatStats;
   nextEvolution: { requiredLevel: number; cellCost: number } | null;
 }
+/** GET /pets/equipments: 내 펫마다 장비 칸 (P창 장비 탭에서 '누가 끼고 있나' 표시용) */
+export interface PetGear { userPetId: number; equipSlotCount: number; equipments: { slotNo: number; equipment: Equipment | null }[]; }
 export interface ExpTransfer { transferId: number; fromLevel: number; toLevelBefore: number; toLevelAfter: number; }
 
 // ── 아이템·장비·강화 ───────────────────────────────────────────

@@ -19,7 +19,7 @@ import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 
 /** 마이룸에서 따라다니는 펫. 3D 모델(modelPath)이 있으면 그걸, 없으면 그림(imageUrl)을 세워서 보여준다. */
-export type RoomPet = { name: string; modelPath?: string | null; imageUrl?: string | null };
+export type RoomPet = { name: string; modelPath?: string | null; imageUrl?: string | null; height?: number };   // height: 모델 전체 높이 (기본 .75)
 type Companion = {
   actor: TransformNode;
   container: { meshes: AbstractMesh[]; animationGroups: AnimationGroup[]; dispose(): void };
@@ -218,7 +218,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     options.onPetStatus(pet ? '펫을 불러오고 있어요.' : '');
     if (!pet) return;
     try {
-      const model: Companion = pet.modelPath ? await loadModel(scene, pet.modelPath, .75)
+      const model: Companion = pet.modelPath ? await loadModel(scene, pet.modelPath, pet.height ?? .75)
         : pet.imageUrl ? loadPicturePet(scene, pet.imageUrl, 1.2)
         : (() => { throw new Error('펫 모델·그림 없음'); })();
       if (disposed || version !== petVersion) { clearPet(model); return; }

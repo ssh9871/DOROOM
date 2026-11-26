@@ -2125,3 +2125,64 @@ body.leaderboard-open { overflow: hidden; }
 @media (prefers-reduced-motion: reduce) { .anvil-hammer, .anvil-body, .anvil-sparks, .anvil-hot { animation:none !important } }
 .gacha-stage.is-forge { background-image:url('/assets/equipment/gacha-forge.png') }   /* 장비 뽑기: 대장간 */
 .gacha-stage.is-forge::before { display:none }   /* 모루 그림에 그림자가 이미 있음 */
+
+/* 🟩 펫 창(P) [펫 | 장비] 탭 + 장비 탭 (창규) */
+.pet-tabs { grid-column:1 / -1; display:flex; gap:6px; padding:12px 20px 0; border-bottom:1px solid #2b3536 }
+.pet-tabs button { padding:9px 18px; border:0; border-bottom:2px solid transparent; background:transparent; color:#8f9b9a; font-size:14px; font-weight:700; cursor:pointer }
+.pet-tabs button[aria-selected="true"] { color:#e8f1f0; border-bottom-color:#329dff }
+.pet-tabs button:hover { color:#dce2e6 }
+.pet-tabs button:focus-visible { outline:2px solid #329dff; outline-offset:-2px; border-radius:6px }
+.gear-rep { grid-column:1 / -1; display:grid; gap:10px; padding:12px; border:1px solid #2b3536; border-radius:14px; background:#1d2222 }
+.gear-rep.is-empty p { margin:0; color:#a6aca9; font-size:13px; line-height:1.6 }
+.gear-rep-pet { display:flex; align-items:center; gap:10px }
+.gear-rep-pet img, .gear-rep-pet .pet-noimg { width:44px; height:44px; object-fit:contain; transform:scale(1.25) }
+.gear-rep-pet strong { font-size:14px }
+.gear-rep-pet small { display:block; margin-top:3px; color:#8f9b9a; font-size:11px }
+.gear-slots { display:grid; grid-template-columns:repeat(3,1fr); gap:8px }
+.gear-slot { position:relative; display:flex; flex-direction:column; align-items:center; justify-content:center; gap:4px; min-height:84px; padding:6px;
+  border:1px dashed #3a4647; border-radius:12px; background:#161a1a; color:#a6b1b0; cursor:pointer }
+.gear-slot.has-item { border-style:solid; border-color:#2f5d4b; background:#18221f }
+.gear-slot[aria-pressed="true"] { border-color:#329dff; box-shadow:0 0 0 3px #1c344c66 }
+.gear-slot.is-locked { opacity:.45; cursor:not-allowed }
+.gear-slot img { width:48px; height:48px; object-fit:contain }
+.gear-slot small { font-size:11px }
+.gear-slot-no { position:absolute; top:5px; left:7px; color:#6f7c7b; font-size:10px; font-weight:700 }
+.gear-plus { font-size:24px; line-height:48px; color:#55625f }
+.gear-lock { font-size:20px; line-height:48px }
+.gear-card small { font-size:10px; font-weight:700 }
+.gear-card small.grade-normal { color:#9ccfa9 } .gear-card small.grade-rare { color:#7fb6ff } .gear-card small.grade-legend { color:#f2b84b }
+.pet-dialog .gear-card img { transform:none }
+.gear-qty { position:absolute; top:5px; right:6px; padding:1px 5px; border-radius:6px; background:#0008; color:#e8f1f0; font-size:10px }
+.gear-preview img { width:70%; height:200px }
+.pet-dialog .pet-card.is-locked img.gear-img, .pet-detail.is-locked .gear-preview img { filter:grayscale(1) brightness(.75); opacity:.38 }
+.pet-dialog .gear-list { grid-template-columns:repeat(3,minmax(0,1fr)) }   /* 장비 9칸 = 등급별 한 줄씩 */
+.gear-row-title { grid-column:1 / -1; margin:6px 0 -2px; color:#c9d3d2; font-size:12px; font-weight:700 }
+.gear-row-title small { margin-left:4px; color:#7f8c8b; font-weight:400 }
+.pet-dialog .gear-card { min-height:88px; gap:3px; padding:6px 4px }   /* 장비 3줄이 스크롤 없이 보이게 */
+.pet-dialog .gear-card img { width:44px; height:44px }
+.gear-rep { gap:8px; padding:10px }
+.gear-slot { min-height:74px }
+.gear-slot img { width:42px; height:42px }
+.gear-plus, .gear-lock { line-height:42px }
+/* 장비 탭: ×0 (가방엔 없고 다른 펫이 착용 중) · 착용 펫 얼굴 · 착용 펫 목록 · 펫 탭 장비 칸 (창규) */
+.gear-qty.is-zero { background:#5a2b2b; color:#ffc9c3 }
+.gear-faces { position:absolute; left:5px; bottom:4px; display:flex; align-items:center }
+.gear-faces .gear-face { width:18px; height:18px; margin-right:-5px; border-radius:50%; background:#2c3536; border:1px solid #1d2222; object-fit:contain; transform:scale(1) }
+.pet-dialog .gear-card .gear-faces img { width:18px; height:18px }
+.gear-faces b { margin-left:7px; color:#a6b1b0; font-size:9px }
+.gear-worn { margin:4px 0 6px; padding:10px 12px; border:1px solid #2b3536; border-radius:12px; background:#1d2222 }
+.gear-worn p { margin:0 0 6px; color:#8f9b9a; font-size:12px }
+.gear-worn ul { list-style:none; margin:0; padding:0; display:grid; gap:6px }
+.gear-worn li { display:flex; align-items:center; gap:8px; font-size:13px }
+.gear-worn li span { flex:1 }
+.gear-worn li em { margin-left:4px; padding:1px 6px; border-radius:6px; background:#004d2d; color:#69e2a0; font-size:10px; font-style:normal }
+.gear-worn .gear-face { width:26px; height:26px; border-radius:50%; background:#2c3536; object-fit:contain }
+.gear-take { padding:5px 10px; border:1px solid #2f5d8f; border-radius:8px; background:#16304f; color:#cfe6ff; font-size:12px; font-weight:700; cursor:pointer }
+.gear-take:hover:not(:disabled) { filter:brightness(1.2) }
+.gear-take:disabled { opacity:.45; cursor:not-allowed }
+.pet-gear-row { display:flex; align-items:center; gap:8px; margin:-6px 0 16px }
+.pet-gear-row span { color:#929fa4; font-size:12px; margin-right:2px }
+.pet-gear-mini { display:grid; place-items:center; width:40px; height:40px; border:1px dashed #3a4647; border-radius:10px; background:#161a1a; font-style:normal; font-size:14px }
+.pet-gear-mini img { width:32px; height:32px; object-fit:contain }
+.pet-gear-mini.is-locked { opacity:.45 }
+.pet-gear-mini:has(img) { border-style:solid; border-color:#2f5d4b }
