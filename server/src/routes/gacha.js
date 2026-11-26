@@ -5,7 +5,7 @@ import { ok } from '../utils/response.js';
 import { AppError } from '../utils/errors.js';
 import { wrap } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
-import { listPools, drawOnce } from '../services/gachaService.js';
+import { listPools, drawOnce, listHistory } from '../services/gachaService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -20,7 +20,12 @@ router.post('/pools/:poolId/draw', wrap(async (req, res) => {
   ok(res, await withTransaction(client => drawOnce(client, req.userId, poolId)));
 }));
 
-// ③ GET /gacha/history   (5단계에서 구현)
-router.get('/history', wrap(async () => { throw new AppError('NOT_IMPLEMENTED'); }));
+// ③ GET /gacha/history?poolType=PET|EQUIPMENT&limit=30 → GachaHistoryEntry[]   최근 순
+router.get('/history', wrap(async (req, res) => {
+  const poolType = req.query.poolType ?? null;
+  if (poolType !== null && poolType !== 'PET' && poolType !== 'EQUIPMENT') throw new AppError('VALIDATION', 'poolType 은 PET 또는 EQUIPMENT');
+  const limit = Math.min(Math.max(Number(req.query.limit) || 30, 1), 100);
+  ok(res, await listHistory(pool, req.userId, { poolType, limit }));
+}));
 
 export default router;

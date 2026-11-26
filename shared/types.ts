@@ -5,7 +5,7 @@
 
 export type Grade = 'NORMAL' | 'RARE' | 'LEGEND';
 export type ItemType = 'FOOD' | 'SNACK' | 'TOY' | 'EXP_POTION' | 'EVOLVE_STONE' | 'GAME_BUFF';
-export type SlotType = 'HEAD' | 'BODY' | 'ACCESSORY';
+export type SlotType = 'HEAD' | 'BODY' | 'ACCESSORY' | 'FEET';   // FEET: 신발 (106)
 export type GameMode = 'STAGE' | 'ENDLESS';
 export type PoolType = 'PET' | 'EQUIPMENT';
 
@@ -61,6 +61,7 @@ export interface Equipment {
   statCode: string; statValue: number;
   nextEquipmentId: number | null; mergeCount: number | null; mergeCellCost: number;
   modelUrl: string | null;
+  imageUrl?: string;     // 장비 그림 /assets/equipment/equip-{line}-{grade}.svg
 }
 export interface UserEquipment { equipment: Equipment; quantity: number; }
 export interface Inventory { items: UserItem[]; equipments: UserEquipment[]; }
@@ -87,6 +88,12 @@ export interface GachaResult {
   pet?: Pet; equipment?: UserEquipment; refundCell?: number;
 }
 export interface GachaLog { gachaId: number; poolId: number; species?: PetSpecies; equipment?: Equipment; createdAt: string; }
+/** GET /gacha/history 한 줄 */
+export interface GachaHistoryEntry {
+  gachaId: number; poolId: number; poolType: PoolType; grade: Grade;
+  isDuplicate: boolean; isPity: boolean; refundCell: number; createdAt: string;
+  species?: Pick<PetSpecies, 'speciesId' | 'name' | 'grade' | 'code' | 'imageUrl'>; equipment?: Equipment;
+}
 
 // ── 게임·랭킹 ─────────────────────────────────────────────────
 /** 작전 지점. displayId "w-s" (1-1 … 4-3) ↔ stageNo = (w-1)*3 + s */

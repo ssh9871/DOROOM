@@ -193,3 +193,31 @@ export async function drawOnce(client, userId, poolId) {
   result.balance = balance;
   return result;
 }
+
+/**
+ * 뽑기 기록 (최근 순). poolType 으로 거를 수 있음.
+ * 중복 펫 환급 셀은 원장(DUPLICATE_REFUND, ref_id = gacha_id)에서 가져온다.
+ * @returns GachaHistoryEntry[]
+ */
+export async function listHistory(db, userId, { poolType = null, limit = 30 } = {}) {
+  const { rows } = await db.query(
+    `SELECT l.gacha_id, l.pool_id, p.pool_type, l.is_duplicate, l.is_pity, l.created_at,
+            s.species_id, s.name AS s_name, s.grade AS s_grade, s.code AS s_code, s.image_url AS s_image,
+            q.*, COALESCE(s.grade, q.grade) AS draw_grade,
+            (SELECT t.amount FROM cell_transaction t
+              WHERE t.user_id = l.user_id AND t.reason = 'DUPLICATE_REFUND' AND t.ref_id = l.gacha_id) AS refund_cell
+       FROM gacha_log l
+       JOIN gacha_pool p ON p.pool_id = l.pool_id
+       LEFT JOIN pet_species s ON s.species_id = l.species_id
+       LEFT JOIN equipment q ON q.equipment_id = l.equipment_id
+      WHERE l.user_id = $1 AND ($2::text IS NULL OR p.pool_type = $2)
+      ORDER BY l.gacha_id DESC
+      LIMIT $3`, [userId, poolType, limit]);
+  return rows.map(r => ({
+    gachaId: Number(r.gacha_id), poolId: r.pool_id, poolType: r.pool_type, grade: r.draw_grade,
+    isDuplicate: r.is_duplicate, isPity: r.is_pity, refundCell: r.refund_cell ?? 0, createdAt: r.created_at,
+    ...(r.species_id
+      ? { species: { speciesId: r.species_id, name: r.s_name, grade: r.s_grade, code: r.s_code, imageUrl: r.s_image } }
+      : { equipment: equipmentDto(r) }),
+  }));
+}

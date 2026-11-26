@@ -1,6 +1,6 @@
 import { shopItems, type PetState } from '../pets/pets';
-import { getShopItems, getInventory, getMe, buyItem, getGachaPools, drawGacha } from '../api/shop';
-import type { Item, GachaPool, GachaResult, Grade } from '../../../shared/types';
+import { getShopItems, getInventory, getMe, buyItem, getGachaPools, drawGacha, getGachaHistory } from '../api/shop';
+import type { Item, GachaPool, GachaResult, GachaHistoryEntry, Grade } from '../../../shared/types';
 
 // 🟩 [펫 상점] 탭은 서버 데이터 사용 (창규). 나머지 탭은 아직 브라우저 저장 데이터(PetState).
 const itemArtPath: Record<string, string> = { FOOD: '/assets/items/pet-food.svg', TOY: '/assets/items/pet-ball.svg' };
@@ -70,69 +70,123 @@ const eggSvg = (mark: string) => `<svg class="stage-egg" viewBox="0 0 100 136" a
     <polyline class="egg-crack" points="${EGG_ZIG.split(' ').slice(1, -1).join(' ')}" fill="none" stroke="#5B3F2C" stroke-width="3" stroke-linejoin="round"/>
     ${mark ? `<text x="50" y="64" text-anchor="middle" class="egg-mark">${mark}</text>` : ''}
   </svg>`;
+// 장비 모루 (3D 렌더 이미지, 창규): 대장간 배경과 같은 캔버스라 겹치기만 하면 자리가 맞는다.
+//   뽑기를 누르면 망치가 나타나 손잡이 끝(57.81% 33.17%)을 축으로 세 번 땅땅땅 → 불꽃·달아오름 → 빛기둥 속에서 장비가 나온다
+const anvilSvg = (mark: string) => `<div class="anvil3d" aria-hidden="true">
+    <span class="forge-smoke"><i></i><i></i><i></i><i></i><i></i></span>
+    <img class="anvil-body" src="/assets/equipment/anvil.png" alt=""/>
+    <span class="anvil-hot"></span>
+    <span class="anvil-sparks"><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
+    <img class="anvil-hammer" src="/assets/equipment/hammer.png" alt=""/>
+    ${mark ? `<b class="anvil-mark">${mark}</b>` : ''}
+  </div>`;
+
 const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
 
-function renderGacha(pool: GachaPool | undefined, balance: number | null, last: GachaResult | null, phase: DrawPhase, newSpeciesId: number | null) {
+type GachaKind = 'PET' | 'EQUIPMENT';
+type DexEntry = { key: string; name: string; grade: Grade; imageUrl?: string | null; owned: boolean; qty?: number };
+const entryOf = (e: GachaPool['entries'][number], equipQty: Record<number, number>): DexEntry | null =>
+  e.species ? { key: `p${e.species.speciesId}`, name: e.species.name, grade: e.species.grade, imageUrl: e.species.imageUrl, owned: e.owned }
+  : e.equipment ? { key: `e${e.equipment.equipmentId}`, name: e.equipment.name, grade: e.equipment.grade, imageUrl: e.equipment.imageUrl,
+                    owned: e.owned, qty: equipQty[e.equipment.equipmentId] ?? 0 }
+  : null;
+const resultOf = (r: GachaResult | null): DexEntry | null =>
+  r?.pet ? { key: `p${r.pet.species.speciesId}`, name: r.pet.species.name, grade: r.grade, imageUrl: r.pet.species.imageUrl, owned: true }
+  : r?.equipment ? { key: `e${r.equipment.equipment.equipmentId}`, name: r.equipment.equipment.name, grade: r.grade,
+                     imageUrl: r.equipment.equipment.imageUrl, owned: true, qty: r.equipment.quantity }
+  : null;
+const statName: Record<string, string> = { BULLET_SPEED: '탄속', MAX_HP: '체력', MOVE_SPEED: '이동 속도', ATTACK: '공격력' };
+const when = (iso: string) => { const d = new Date(iso); return `${d.getMonth() + 1}/${d.getDate()} ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`; };
+
+function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: number | null, last: GachaResult | null, phase: DrawPhase,
+                     newKey: string | null, equipQty: Record<number, number>, history: GachaHistoryEntry[] | null) {
+  const pet = kind === 'PET';
+  const word = pet ? '펫' : '장비';
+  const switcher = `<div class="gacha-kinds" role="group" aria-label="뽑기 종류">
+      <button data-kind="PET" aria-pressed="${pet}">펫 뽑기</button><button data-kind="EQUIPMENT" aria-pressed="${!pet}">장비 뽑기</button></div>`;
   const drawing = phase === 'charging' || phase === 'reveal';
-  if (!pool) return `<div class="shop-coming"><h3>펫 뽑기</h3><p>지금은 뽑기를 할 수 없어요. 잠시 후 다시 열어주세요.</p></div>`;
-  const pets = pool.entries.filter(e => e.species);
+  if (!pool) return `${switcher}<div class="shop-coming"><h3>${word} 뽑기</h3><p>지금은 뽑기를 할 수 없어요. 잠시 후 다시 열어주세요.</p></div>`;
+  const lineOrder = ['HELMET', 'GLOVE', 'BOOTS'];   // 장비는 모든 등급 줄을 같은 순서로: 모자 → 목걸이 → 신발 (line_code 는 예전 이름 그대로)
+  const list = [...pool.entries].sort((a, b) => a.equipment && b.equipment
+      ? lineOrder.indexOf(a.equipment.lineCode) - lineOrder.indexOf(b.equipment.lineCode) : 0)
+    .map(e => entryOf(e, equipQty)).filter((e): e is DexEntry => !!e);
   const left = pool.dailyLimit === null ? null : Math.max(0, pool.dailyLimit - pool.drawnToday);
   const lackCell = balance !== null && balance < pool.costCell;
   const disabled = drawing || lackCell || left === 0;
   const reason = left === 0 ? '오늘은 더 뽑을 수 없어요. 내일 다시 와주세요.' : lackCell ? '셀이 모자라요. 미니게임에서 모아오세요.' : '';
-  const lastPet = last?.pet;
-  // 정원판 위에 펫을 세운다. 펫 그림은 모두 같은 캔버스(정원판 기준 위치)로 잘려 있어서 위치를 따로 맞출 필요가 없다.
-  const stage = (pet: string, extra = '') => `<div class="gacha-stage${extra}" aria-hidden="true" data-skip>${pet}</div>`;
+  const got = resultOf(last);
+  const box = pet ? eggSvg : anvilSvg;   // 모루에는 물음표 없음
+  const shown = (e: DexEntry) => e.imageUrl ? `<img class="stage-pet${pet ? '' : ' stage-equip'}" src="${e.imageUrl}" alt=""/>` : '';
+  // 정원판 위에 결과를 세운다. 펫 그림은 모두 같은 캔버스(정원판 기준 위치)로 잘려 있어서 위치를 따로 맞출 필요가 없다.
+  const stage = (inner: string, extra = '') => `<div class="gacha-stage${pet ? '' : ' is-forge'}${extra}" aria-hidden="true" data-skip>${inner}</div>`;   // 장비: 대장간 배경
   const beam = `<span class="stage-beam"></span><span class="stage-sparks"><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
+  const note = !got || !last ? '' : pet
+    ? (last.isDuplicate ? `이미 있는 펫이라 ${last.refundCell ?? 0}셀을 돌려받았어요` : '처음 만났어요')
+    : (got.qty! > 1 ? `합치기 재료로 쌓였어요 · ${got.qty}개 보유` : '처음 얻었어요');
   const window_ = phase === 'charging'
     ? `<div class="gacha-window is-drawing phase-charging" role="status">
-        ${stage(eggSvg(''), ' is-charging')}
-        <p class="gacha-note">알이 흔들려요…</p>
+        ${stage(box(''), ' is-charging')}
+        <p class="gacha-note">${pet ? '알이 흔들려요…' : '땅! 땅! 땅!'}</p>
       </div>`
-    : phase === 'reveal' && lastPet
-    ? `<div class="gacha-window is-drawing phase-reveal ${gradeInfo[last!.grade].className}" role="status">
-        ${stage(`${beam}${lastPet.species.imageUrl ? `<img class="stage-pet" src="${lastPet.species.imageUrl}" alt=""/>` : ''}${eggSvg('')}`, ' is-reveal')}
-        <p class="gacha-note">${last!.grade === 'LEGEND' ? '엄청난 빛이…!' : last!.grade === 'RARE' ? '푸른 빛이 보여요!' : '누군가 나타났어요'}</p>
+    : phase === 'reveal' && got
+    ? `<div class="gacha-window is-drawing phase-reveal ${gradeInfo[got.grade].className}" role="status">
+        ${stage(`${beam}${shown(got)}${box('')}`, ' is-reveal')}
+        <p class="gacha-note">${got.grade === 'LEGEND' ? '엄청난 빛이…!' : got.grade === 'RARE' ? '푸른 빛이 보여요!' : pet ? '누군가 나타났어요' : '장비가 완성되고 있어요'}</p>
       </div>`
-    : lastPet
-    ? `<div class="gacha-window ${gradeInfo[last!.grade].className}${phase === 'done' ? ' phase-done' : ''}" role="status">
-        ${stage(`${phase === 'done' ? '<span class="stage-flash"></span><span class="stage-ring"></span>' : ''}${lastPet.species.imageUrl ? `<img class="stage-pet" src="${lastPet.species.imageUrl}" alt=""/>` : ''}`)}
-        <p class="gacha-name"><strong>${escapeHtml(lastPet.species.name)}</strong> <span>${gradeInfo[last!.grade].label}</span></p>
-        <p class="gacha-note">${last!.isDuplicate ? `이미 있는 펫이라 ${last!.refundCell ?? 0}셀을 돌려받았어요` : '처음 만났어요'}</p>
+    : got
+    ? `<div class="gacha-window ${gradeInfo[got.grade].className}${phase === 'done' ? ' phase-done' : ''}" role="status">
+        ${stage(`${phase === 'done' ? '<span class="stage-flash"></span><span class="stage-ring"></span>' : ''}${shown(got)}`)}
+        <p class="gacha-name"><strong>${escapeHtml(got.name)}</strong> <span>${gradeInfo[got.grade].label}</span></p>
+        <p class="gacha-note">${note}</p>
       </div>`
     : `<div class="gacha-window is-empty">
-        ${stage(eggSvg('?'), ' is-idle')}
-        <p class="gacha-note">어떤 펫이 나올까요</p>
+        ${stage(box(pet ? '?' : ''), ' is-idle')}
+        <p class="gacha-note">${pet ? '어떤 펫이 나올까요' : '어떤 장비가 만들어질까요'}</p>
       </div>`;
-  const draw = `<section class="gacha-draw" aria-label="펫 뽑기">
+  const historyList = history === null ? '' : `<section class="gacha-history" aria-label="최근 ${word} 뽑기 기록">
+      ${history.length ? `<ol>${history.map(h => {
+        const name = h.species?.name ?? h.equipment?.name ?? '?';
+        const img = h.species?.imageUrl ?? h.equipment?.imageUrl;
+        const tag = h.refundCell > 0 ? `<em>+${h.refundCell}셀 환급</em>` : h.isDuplicate ? `<em>${pet ? '중복' : '재료 +1'}</em>` : '<em class="is-first">처음</em>';
+        return `<li class="${gradeInfo[h.grade].className}">${img ? `<img src="${img}" alt=""/>` : ''}<b>${escapeHtml(name)}</b><span>${gradeInfo[h.grade].label}</span>${tag}<time>${when(h.createdAt)}</time></li>`;
+      }).join('')}</ol>` : `<p>아직 ${word} 뽑기 기록이 없어요.</p>`}
+    </section>`;
+  const draw = `<section class="gacha-draw" aria-label="${word} 뽑기">
       ${window_}
       <dl class="gacha-facts">
         <div><dt>한 번에</dt><dd><span class="cell-icon" aria-hidden="true">⬡</span> ${pool.costCell.toLocaleString()}</dd></div>
         ${left === null ? '' : `<div><dt>오늘 남은 횟수</dt><dd>${left}번</dd></div>`}
       </dl>
-      <button id="gacha-draw" data-draw="${pool.poolId}" ${disabled ? 'disabled' : ''}>${drawing ? '뽑는 중' : '펫 뽑기'}</button>
+      <button id="gacha-draw" data-draw="${pool.poolId}" ${disabled ? 'disabled' : ''}>${drawing ? '뽑는 중' : `${word} 뽑기`}</button>
       ${reason ? `<p class="gacha-reason">${reason}</p>` : ''}
+      <button id="gacha-history" class="gacha-history-toggle" data-history aria-expanded="${history !== null}">${history === null ? '최근 기록 보기' : '최근 기록 닫기'}</button>
+      ${historyList}
     </section>`;
   const section = (grade: Grade) => {
-    const list = pets.filter(e => e.species!.grade === grade);
-    if (!list.length) return '';
+    const rows = list.filter(e => e.grade === grade);
+    if (!rows.length) return '';
     const rate = pool.gradeRates.find(r => r.grade === grade)?.probability;
-    const have = list.filter(e => e.owned).length;
+    const have = rows.filter(e => e.owned).length;
+    const sub = rate !== undefined ? `<small>${rate}% 확률</small>` : '';
     return `<section class="dex-group ${gradeInfo[grade].className}" aria-label="${gradeInfo[grade].label}">
-        <h4><span>${gradeInfo[grade].label}</span>${rate === undefined ? '' : `<small>${rate}% 확률</small>`}<em>${have}/${list.length}</em></h4>
-        <ul class="dex-slots">${list.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.species!.speciesId === newSpeciesId ? ' is-new' : ''}">
-            ${e.species!.speciesId === newSpeciesId ? '<b class="dex-new">NEW</b>' : ''}${petImage(e.species!.imageUrl, e.species!.name)}<span>${escapeHtml(e.species!.name)}${e.owned ? '' : '<span class="visually-hidden">, 아직 없음</span>'}</span></li>`).join('')}</ul>
+        <h4><span>${gradeInfo[grade].label}</span>${sub}<em>${have}/${rows.length}</em></h4>
+        <ul class="dex-slots">${rows.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.key === newKey ? ' is-new' : ''}${pet ? '' : ' is-equip'}">
+            ${e.key === newKey ? '<b class="dex-new">NEW</b>' : ''}${e.qty ? `<b class="dex-qty">×${e.qty}</b>` : ''}${petImage(e.imageUrl, e.name)}<span>${escapeHtml(e.name)}${e.owned ? '' : '<span class="visually-hidden">, 아직 없음</span>'}</span></li>`).join('')}</ul>
       </section>`;
   };
-  const owned = pets.filter(e => e.owned).length;
-  const dex = `<section class="gacha-dex" aria-label="펫 도감">
-      <header><h3>도감</h3><p>${pets.length}마리 중 ${owned}마리를 만났어요</p></header>
+  const owned = list.filter(e => e.owned).length;
+  const equipNote = pet ? '' : `<p class="dex-hint">같은 장비 3개를 모으면 다음 등급으로 합칠 수 있어요. ${pool.entries.filter(e => e.equipment && e.equipment.grade === 'NORMAL')
+    .sort((a, b) => lineOrder.indexOf(a.equipment!.lineCode) - lineOrder.indexOf(b.equipment!.lineCode))
+    .map(e => `${e.equipment!.name} ${statName[e.equipment!.statCode] ?? e.equipment!.statCode}`).join(' · ')}</p>`;
+  const dex = `<section class="gacha-dex" aria-label="${word} 도감">
+      <header><h3>도감</h3><p>${list.length}${pet ? '마리' : '개'} 중 ${owned}${pet ? '마리를 만났어요' : '개를 얻었어요'}</p></header>
+      ${equipNote}
       ${section('NORMAL')}<div class="dex-special">${section('RARE')}${section('LEGEND')}</div>
     </section>`;
-  return `<div class="gacha">${draw}${dex}</div>`;
+  return `${switcher}<div class="gacha">${draw}${dex}</div>`;
 }
 
-const tabs = ['펫 뽑기', '펫 스킨', '펫 상점', '펫 성장', '상호작용'];
+const tabs = ['뽑기', '펫 스킨', '펫 상점', '펫 성장', '상호작용'];
 
 export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onChange: () => void) {
   const tabList = dialog.querySelector<HTMLElement>('#shop-tabs')!;
@@ -146,10 +200,13 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   let balance: number | null = null;
   let loading = true;
   let loadError = '';
-  let petPool: GachaPool | undefined;
+  let pools: GachaPool[] = [];
+  let gachaKind: GachaKind = 'PET';
+  let equipQty: Record<number, number> = {};     // 장비별 보유 개수 (도감 ×n)
+  let history: GachaHistoryEntry[] | null = null;  // 열려 있으면 최근 기록
   let lastDraw: GachaResult | null = null;
   let phase: DrawPhase = 'idle';
-  let newSpeciesId: number | null = null;    // 방금 처음 만난 펫 → 도감 칸에 NEW
+  let newKey: string | null = null;    // 방금 처음 얻은 펫·장비 → 도감 칸에 NEW
   let skipReveal: (() => void) | null = null;
   tabList.innerHTML = tabs.map((label, index) => `<button role="tab" id="shop-tab-${index}" aria-controls="shop-panel" data-tab="${index}">${label}</button>`).join('');
   const refresh = () => {
@@ -169,7 +226,7 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     const selector = `<aside class="shop-pet-list"><button class="pet-card" id="select-shop-pet" data-pet="${pet.id}" aria-pressed="${selectedPetId === pet.id}"><img src="${pet.previewPath}" alt=""/><strong>${pet.name}</strong><span>Lv. ${pet.level}</span></button><small>장착하지 않아도 돌볼 수 있어요.</small></aside>`;
     if (activeTab === 0) {
       panel.innerHTML = loadError ? `<p>${loadError}</p><button id="shop-reload" data-reload>다시 불러오기</button>`
-        : loading ? `<p>도감을 불러오고 있어요.</p>` : renderGacha(petPool, balance, lastDraw, phase, newSpeciesId);
+        : loading ? `<p>도감을 불러오고 있어요.</p>` : renderGacha(gachaKind, pools.find(p => p.poolType === gachaKind), balance, lastDraw, phase, newKey, equipQty, history);
     } else if (activeTab === 1) {
       panel.innerHTML = `<div class="shop-coming">${preview}<h3>${tabs[activeTab]}</h3><p>새로운 만남을 준비하고 있어요.</p><button disabled>스킨 적용 준비 중</button></div>`;
     } else if (activeTab === 2) {
@@ -188,9 +245,10 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   // 서버에서 상품·보유 개수·셀 잔액을 한 번에 불러오기
   const loadServer = async () => {
     try {
-      const [items, inventory, me, pools] = await Promise.all([getShopItems(), getInventory(), getMe(), getGachaPools()]);
+      const [items, inventory, me, gachaPools] = await Promise.all([getShopItems(), getInventory(), getMe(), getGachaPools()]);
       serverItems = items;
-      petPool = pools.find(p => p.poolType === 'PET');
+      pools = gachaPools;
+      equipQty = Object.fromEntries(inventory.equipments.map(entry => [entry.equipment.equipmentId, entry.quantity]));
       owned = Object.fromEntries(inventory.items.map(entry => [entry.item.itemId, entry.quantity]));
       balance = me.cellBalance;
       loadError = '';
@@ -221,16 +279,24 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     const timer = setTimeout(() => { skipReveal = null; resolve(); }, ms);
     skipReveal = () => { clearTimeout(timer); skipReveal = null; resolve(); };   // 정원판을 누르면 바로 결과로
   });
+  // 최근 뽑기 기록 열기·닫기 (지금 보고 있는 종류만, 최근 30번)
+  const toggleHistory = async () => {
+    if (history !== null) { history = null; refresh(); panel.querySelector<HTMLButtonElement>('#gacha-history')?.focus(); return; }
+    try { history = await getGachaHistory(gachaKind); }
+    catch (error) { result.textContent = error instanceof Error ? error.message : '기록을 불러오지 못했어요.'; return; }
+    refresh();
+    panel.querySelector<HTMLButtonElement>('#gacha-history')?.focus();
+  };
   const draw = async (poolId: number) => {
     if (phase === 'charging' || phase === 'reveal') return;
     const quick = reducedMotion();
-    phase = 'charging'; newSpeciesId = null; result.textContent = '';
+    phase = 'charging'; newKey = null; history = null; result.textContent = '';
     refresh();
     const started = Date.now();
-    let nextPool: GachaPool | undefined;
+    let nextPools: GachaPool[] | undefined;
     try {
       lastDraw = await drawGacha(poolId);
-      nextPool = (await getGachaPools()).find(p => p.poolType === 'PET');
+      nextPools = await getGachaPools();
       if (!quick) {
         await new Promise(r => setTimeout(r, Math.max(0, MIN_CHARGE_MS - (Date.now() - started))));
         phase = 'reveal';
@@ -238,13 +304,15 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
         await wait(REVEAL_MS[lastDraw.grade]);
       }
       balance = lastDraw.balance;
-      newSpeciesId = lastDraw.pet && !lastDraw.isDuplicate ? lastDraw.pet.species.speciesId : null;
-      if (nextPool) petPool = nextPool;
+      newKey = lastDraw.pet ? (lastDraw.isDuplicate ? null : `p${lastDraw.pet.species.speciesId}`)
+        : lastDraw.equipment && lastDraw.equipment.quantity === 1 ? `e${lastDraw.equipment.equipment.equipmentId}` : null;
+      if (lastDraw.equipment) equipQty[lastDraw.equipment.equipment.equipmentId] = lastDraw.equipment.quantity;
+      if (nextPools) pools = nextPools;
       phase = dialog.open ? 'done' : 'idle';
-      if (!dialog.open) { lastDraw = null; newSpeciesId = null; }
+      if (!dialog.open) { lastDraw = null; newKey = null; }
       result.textContent = lastDraw?.pet
         ? `${lastDraw.pet.species.name}(${gradeInfo[lastDraw.grade].label})${lastDraw.isDuplicate ? `, 이미 있는 펫이라 ${lastDraw.refundCell ?? 0}셀을 돌려받았어요.` : '을(를) 처음 만났어요.'}`
-        : '';
+        : lastDraw?.equipment ? `${lastDraw.equipment.equipment.name}(${gradeInfo[lastDraw.grade].label})을(를) 얻었어요. ${lastDraw.equipment.quantity}개 보유` : '';
     } catch (error) {
       phase = lastDraw ? 'done' : 'idle';
       result.textContent = error instanceof Error ? error.message : '뽑기를 하지 못했어요.';
@@ -253,7 +321,7 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     onChange();
     panel.querySelector<HTMLButtonElement>('#gacha-draw')?.focus();
   };
-  const selectTab = (index: number) => { activeTab = index; result.textContent = ''; if (phase === 'done') { phase = 'idle'; newSpeciesId = null; } refresh(); panel.scrollTop = 0; };
+  const selectTab = (index: number) => { activeTab = index; result.textContent = ''; if (phase === 'done') { phase = 'idle'; newKey = null; } refresh(); panel.scrollTop = 0; };
   tabList.addEventListener('click', event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
     if (button) selectTab(Number(button.dataset.tab));
@@ -272,6 +340,11 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     if (button.dataset.pet === state.pet.id) selectedPetId = button.dataset.pet;
     else if (button.dataset.buy) { void purchase(button); return; }
     else if (button.dataset.draw) { void draw(Number(button.dataset.draw)); return; }
+    if (button.dataset.kind && phase !== 'charging' && phase !== 'reveal') {          // [펫 뽑기 | 장비 뽑기] 전환
+      gachaKind = button.dataset.kind as GachaKind; phase = 'idle'; lastDraw = null; newKey = null; history = null; result.textContent = '';
+      refresh(); panel.querySelector<HTMLButtonElement>(`[data-kind="${gachaKind}"]`)?.focus(); return;
+    }
+    if (button.hasAttribute('data-history')) { void toggleHistory(); return; }
     else if (button.hasAttribute('data-reload')) { loading = true; refresh(); void loadServer(); return; }
     else if (button.dataset.use) message = state.interact(selectedPetId, button.dataset.use);
     else if (button.hasAttribute('data-grow')) message = state.grow(selectedPetId);
@@ -287,7 +360,7 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   // 상점을 닫았다 다시 열면 뽑기 칸은 다시 알로 (연출 중이면 그대로 둠)
   dialog.addEventListener('close', () => {
     if (phase === 'charging' || phase === 'reveal') return;
-    phase = 'idle'; lastDraw = null; newSpeciesId = null;
+    phase = 'idle'; lastDraw = null; newKey = null; history = null;
   });
   return () => { selectTab(2); dialog.showModal(); void loadServer(); };
 }

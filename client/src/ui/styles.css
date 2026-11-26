@@ -2048,3 +2048,80 @@ body.leaderboard-open { overflow: hidden; }
 .is-reveal .egg-whole { display:none }
 .is-reveal .egg-ground { transition:opacity .3s; opacity:0 }
 .egg-ground { filter:blur(2px) }   /* 깨지기 전에는 두 껍질 사이 이음매를 가린다 */
+
+/* 🟩 5: 펫·장비 뽑기 전환, 장비 상자, 최근 기록 (창규) */
+.gacha-kinds { display:inline-flex; gap:4px; margin:0 0 16px; padding:4px; border-radius:12px; background:#141a1a; box-shadow:inset 0 0 0 1.5px #2b3536 }
+#shop-panel .gacha-kinds button { padding:8px 18px; border-radius:9px; background:transparent; color:#8f9b9a; font-weight:700 }
+#shop-panel .gacha-kinds button[aria-pressed="true"] { background:#2f7d6e; color:#fff }
+.dex-slot.is-equip img { transform:none; padding:4px }
+.dex-qty { position:absolute; bottom:22px; right:4px; z-index:1; padding:0 4px; border-radius:5px; background:#0009; color:#fff; font-size:10px; font-weight:800 }
+.dex-hint { margin:-4px 0 14px; color:#8f9b9a; font-size:12px; line-height:1.5 }
+#shop-panel button.gacha-history-toggle { margin-top:2px; padding:8px; background:transparent; color:#9fd8c8; box-shadow:inset 0 0 0 1.5px #2f4a42 }
+.gacha-history { flex:none; margin-top:0; max-height:260px; overflow-y:auto; border-radius:10px; background:#141a1a }
+.gacha-history ol { margin:0; padding:4px; list-style:none }
+.gacha-history li { display:grid; grid-template-columns:32px 1fr auto; grid-template-areas:"img name tag" "img grade time"; column-gap:8px; align-items:center;
+  padding:6px 8px; border-bottom:1px solid #1f2727; font-size:12px }
+.gacha-history li:last-child { border-bottom:0 }
+.gacha-history img { grid-area:img; width:32px; height:32px; object-fit:contain }
+.gacha-history b { grid-area:name; color:#e8efee } .gacha-history span { grid-area:grade; color:var(--grade-color); font-size:11px }
+.gacha-history em { grid-area:tag; justify-self:end; font-style:normal; color:#f1b45a; font-size:11px } .gacha-history em.is-first { color:#8fd6b4 }
+.gacha-history time { grid-area:time; justify-self:end; color:#6d7a79; font-size:11px }
+.gacha-history p { margin:0; padding:14px; color:#8f9b9a; font-size:12px; text-align:center }
+
+/* 🟩 장비 뽑기 모루 연출 (창규): 3D 렌더 이미지(모루·망치)를 대장간 배경 위에 그대로 겹침
+   망치 축 = 57.81% 33.17%, 모루 윗면 = 53.66% 49.46% (forge.py 가 계산한 위치). 망치는 뽑기를 누를 때만 나타남 */
+.anvil3d { position:absolute; inset:0 }
+.anvil3d img { position:absolute; inset:0; width:100%; height:100% }
+.anvil-hammer { transform-origin:57.81% 33.17%; transform:rotate(48deg); opacity:0 }
+.anvil-mark { position:absolute; left:54%; top:51%; transform:translate(-50%,-50%); font-size:22px; font-weight:800; color:#E6EDF0; text-shadow:0 2px 0 #0008 }
+.anvil-hot { position:absolute; left:52%; top:50%; width:13%; height:5%; transform:translate(-50%,-50%); border-radius:50%;
+  background:radial-gradient(closest-side, #FFF3C4, #FF9A3C 55%, transparent); mix-blend-mode:screen; opacity:0 }
+.anvil-sparks { position:absolute; left:53.5%; top:48.5%; width:0; height:0; opacity:0 }
+.anvil-sparks i { position:absolute; left:-1.5px; top:-1.5px; width:3px; height:9px; border-radius:2px; background:#FFE08A; box-shadow:0 0 6px #FFB347; transform-origin:2px 2px }
+.anvil-sparks i:nth-child(1) { transform:rotate(180deg) translateY(10px) } .anvil-sparks i:nth-child(2) { transform:rotate(140deg) translateY(10px) }
+.anvil-sparks i:nth-child(3) { transform:rotate(220deg) translateY(10px) } .anvil-sparks i:nth-child(4) { transform:rotate(105deg) translateY(12px) }
+.anvil-sparks i:nth-child(5) { transform:rotate(255deg) translateY(12px) } .anvil-sparks i:nth-child(6) { transform:rotate(160deg) translateY(20px) scale(.6) }
+.anvil-sparks i:nth-child(7) { transform:rotate(200deg) translateY(20px) scale(.6) }
+/* charging: 25% · 50% · 77% 에 내려침 (0.33초 · 0.65초 · 1초) */
+.is-charging .anvil-body { animation:anvil-bump 1.3s linear forwards }
+.is-charging .anvil-hammer { animation:hammer-strike 1.3s ease-in forwards }
+.is-charging .anvil-sparks { animation:anvil-sparks 1.3s linear forwards }
+.is-charging .anvil-hot { animation:anvil-hot 1.3s linear forwards }
+@keyframes hammer-strike {
+  0% { transform:rotate(70deg) translate(4%, -6%); opacity:0 } 12% { transform:rotate(50deg); opacity:1 } 17% { transform:rotate(48deg); opacity:1 } 25% { transform:rotate(0); opacity:1 } 31% { transform:rotate(10deg); opacity:1 }
+  42% { transform:rotate(48deg) } 50% { transform:rotate(0) } 56% { transform:rotate(10deg) }
+  68% { transform:rotate(55deg); opacity:1 } 77% { transform:rotate(0); opacity:1 } 84% { transform:rotate(8deg); opacity:1 } 100% { transform:rotate(4deg); opacity:1 } }
+@keyframes anvil-sparks {
+  0%, 24% { opacity:0; transform:scale(.4) } 26% { opacity:1; transform:scale(1) } 32% { opacity:0; transform:scale(1.5) }
+  49% { opacity:0; transform:scale(.4) } 51% { opacity:1; transform:scale(1.1) } 57% { opacity:0; transform:scale(1.6) }
+  76% { opacity:0; transform:scale(.4) } 78% { opacity:1; transform:scale(1.3) } 88% { opacity:0; transform:scale(2) } 100% { opacity:0 } }
+@keyframes anvil-hot { 0%, 24% { opacity:0 } 27% { opacity:.45 } 50% { opacity:.4 } 52% { opacity:.75 } 77% { opacity:.7 } 80%, 100% { opacity:1 } }
+@keyframes anvil-bump {
+  0%, 24% { transform:none } 26% { transform:translateY(.6%) } 30% { transform:none }
+  49% { transform:none } 51% { transform:translateY(.6%) } 55% { transform:none }
+  76% { transform:none } 78% { transform:translateY(.9%) } 84%, 100% { transform:none } }
+/* reveal: 망치는 날아가고 모루는 가라앉으면서, 그 자리에 빛기둥과 장비 실루엣 */
+.is-reveal .anvil-hammer { animation:hammer-off .4s ease-out forwards }
+.is-reveal .anvil-body, .is-reveal .anvil-hot { animation:anvil-sink .4s .05s ease-in forwards }
+.is-reveal .anvil-hot { opacity:1 }
+@keyframes hammer-off { from { transform:rotate(4deg); opacity:1 } to { transform:rotate(80deg) translate(6%, -10%); opacity:0 } }
+@keyframes anvil-sink { to { transform:translateY(6%); opacity:0 } }
+/* 대장간 굴뚝 연기 (창규): 굴뚝 꼭대기(25.3% 25.7%, forge.py 계산)에서 몽글몽글 올라가며 흐려짐 */
+.forge-smoke { position:absolute; left:25.3%; top:25.7%; width:0; height:0; pointer-events:none }
+.forge-smoke i { position:absolute; left:-9px; top:-9px; width:18px; height:18px; border-radius:50%;
+  background:radial-gradient(circle at 40% 40%, #d9d4ce, #8f8a85 70%); opacity:0; filter:blur(1px);
+  animation:forge-smoke 3.6s ease-out infinite }
+.forge-smoke i:nth-child(2) { animation-delay:.72s } .forge-smoke i:nth-child(3) { animation-delay:1.44s }
+.forge-smoke i:nth-child(4) { animation-delay:2.16s } .forge-smoke i:nth-child(5) { animation-delay:2.88s }
+@keyframes forge-smoke {
+  0% { transform:translate(0, 0) scale(.45); opacity:0 }
+  12% { opacity:.75 }
+  55% { transform:translate(12px, -30px) scale(1.2); opacity:.5 }
+  100% { transform:translate(30px, -54px) scale(1.8); opacity:0 } }
+.is-charging .forge-smoke i { animation-duration:1.8s }      /* 망치질할 때 불이 세져서 연기가 빨라짐 */
+@media (prefers-reduced-motion: reduce) { .forge-smoke i { animation:none; opacity:.4 } }
+.gacha-stage.is-forge .stage-beam { left:53.6%; bottom:36% }
+.gacha-stage.is-forge .stage-equip { left:40.6%; top:31%; width:26% }
+@media (prefers-reduced-motion: reduce) { .anvil-hammer, .anvil-body, .anvil-sparks, .anvil-hot { animation:none !important } }
+.gacha-stage.is-forge { background-image:url('/assets/equipment/gacha-forge.png') }   /* 장비 뽑기: 대장간 */
+.gacha-stage.is-forge::before { display:none }   /* 모루 그림에 그림자가 이미 있음 */

@@ -1,5 +1,5 @@
 // 🟩 상점 API 호출 (서버: server/src/routes/shop.js, inventory.js)  담당: 창규
-import type { ApiResponse, Item, UserItem, Inventory, User, GachaPool, GachaResult } from '../../../shared/types';
+import type { ApiResponse, Item, UserItem, Inventory, User, GachaPool, GachaResult, GachaHistoryEntry, PoolType } from '../../../shared/types';
 
 const baseUrl = import.meta.env.VITE_API_URL ?? 'http://localhost:3000';
 const tokenKey = 'doroom.auth-token'; // 로그인할 때 auth.ts가 토큰을 저장하는 이름과 같아야 함
@@ -34,3 +34,5 @@ export const buyItem = (itemId: number, quantity = 1) =>
 export const getGachaPools = () => authRequest<GachaPool[]>('/gacha/pools');
 export const drawGacha = (poolId: number) =>
   authRequest<GachaResult>(`/gacha/pools/${poolId}/draw`, { method: 'POST' });
+export const getGachaHistory = (poolType: PoolType, limit = 30) =>
+  authRequest<GachaHistoryEntry[]>(`/gacha/history?poolType=${poolType}&limit=${limit}`);
