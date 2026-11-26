@@ -1811,6 +1811,22 @@ body.leaderboard-open { overflow: hidden; }
 .mg-choices { margin-block: 16px 24px; }
 .mg-choices button { width: 100%; margin-bottom: 10px; }
 .mg-panel { width: min(760px, 90%); max-height: 660px; overflow: auto; }
+.mg-entry-shop { border-top: 1px solid #507088; margin-block: 16px; padding-top: 14px; }
+.mg-entry-shop h2 { font-size: 22px; }
+.mg-entry-shop fieldset { border: 0; margin: 0 0 12px; padding: 0; min-width: 0; }
+.mg-buff-list { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.mg-buff-list > p { grid-column: 1 / -1; }
+.mg-buff-list label {
+  display: flex; align-items: center; gap: 6px; min-height: 62px; padding: 8px;
+  border: 1px solid #7aadc7; border-radius: 8px; background: #163550; cursor: pointer;
+}
+.mg-buff-list label:has(input:checked) { border-color: #8cf4d0; background: #24546b; }
+.mg-buff-list label:has(input:focus-visible) { outline: 3px solid #ffdd79; outline-offset: 2px; }
+.mg-entry-shop fieldset:disabled label { cursor: default; opacity: .7; }
+.mg-buff-list input { flex: none; margin: 0; accent-color: #8cf4d0; }
+.mg-frame .mg-buff-list img { flex: none; width: 36px; height: 36px; margin: 0; }
+.mg-buff-list small { display: block; margin-top: 4px; color: #c4dbea; }
+.mg-entry-shop output { font-weight: 700; }
 .mg-columns { gap: 24px; margin-block: 18px; }
 .mg-upgrade-list, .mg-pet-list { display: grid; gap: 10px; align-content: start; max-height: 380px; overflow: auto; padding: 4px; }
 .mg-upgrade-list button, .mg-pet-list button { text-align: left; }

@@ -12,8 +12,9 @@ export class Player {
   readonly hitRadius = PLAYER.hitRadius;
   hp = PLAYER.maxHp;
   maxHp = PLAYER.maxHp;
-  isShieldActive = false;
+  petShieldActive = false;
   fireRate = 1;
+  private entryShieldSeconds = 0;
   private invulnerable = 0;
   private fireTimer = 0;
   private time = 0;
@@ -24,7 +25,15 @@ export class Player {
   private speed = PLAYER.speed;
   private bulletSpeed = PLAYER_BULLET.speed;
 
-  reset(levels: Levels, petLevel = 1, pet?: BattlePet): void {
+  get entryShieldRemaining(): number {
+    return Math.max(0, this.entryShieldSeconds - this.time);
+  }
+
+  get isShieldActive(): boolean {
+    return this.petShieldActive || this.entryShieldRemaining > 0;
+  }
+
+  reset(levels: Levels, petLevel = 1, pet?: BattlePet, entryShieldSeconds = 0): void {
     this.levels = levels;
     const stats = battlePetStats(pet, levels, petLevel);
     this.damage = stats.damage;
@@ -34,7 +43,8 @@ export class Player {
     this.y = WORLD.height - 110;
     this.maxHp = stats.maxHp;
     this.hp = this.maxHp;
-    this.isShieldActive = false;
+    this.petShieldActive = false;
+    this.entryShieldSeconds = entryShieldSeconds;
     this.fireRate = 1;
     this.invulnerable = this.fireTimer = this.time = this.direction = 0;
     this.focus = false;

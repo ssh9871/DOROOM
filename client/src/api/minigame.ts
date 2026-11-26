@@ -1,5 +1,5 @@
 import type {
-  CombatStats, GameFinishRequest, GameResult, GameRun, GameStart, GameStartRequest, Pet, PetDetail, Ranking,
+  CombatStats, GameFinishRequest, GameResult, GameRun, GameStart, GameStartRequest, Item, Pet, PetDetail, Ranking,
   StageList, StatUpgrade, StatUpgradeBuyResult,
 } from '../../../shared/types';
 import { authenticatedRequest, type AccountUser } from './auth';
@@ -13,6 +13,7 @@ export function minigameApi() {
   return {
     account: () => request<AccountUser>('/me'),
     stages: () => request<StageList>('/stages'),
+    entryBuffs: () => request<Item[]>('/shop/items?shop=minigame'),
     pets: () => request<Pet[]>('/pets'),
     petDetail: (id: number) => request<PetDetail>(`/pets/${id}`),
     petCombatStats: (id: number) => request<CombatStats>(`/pets/${id}/combat-stats`),

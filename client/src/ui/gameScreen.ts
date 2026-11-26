@@ -5,7 +5,7 @@ import { endlessStages, operations, speakers, stages, type Dialogue } from '../g
 import { endlessStagePool, totalZoneBonus } from '../game/endless';
 import { BOSS_TIME_LIMIT, skills, upgradeIds, upgrades, type Levels, type RunResult, type RunSetup, type SkillId, type UpgradeId } from '../game/progress';
 import { battlePets, battlePetStats } from '../game/petCatalog';
-import type { GameResult, Pet, StageList, StatUpgrade } from '../../../shared/types';
+import type { GameResult, GameStartRequest, Pet, StageList, StatUpgrade } from '../../../shared/types';
 import { minigameApi } from '../api/minigame';
 import { petGearLabels, petGearSlots } from './petGear';
 import { formatRankingWeek } from './weeklyRanking';
@@ -21,9 +21,12 @@ const sortieScore = (seconds: number, kills: number) => Math.floor(Math.round(se
 const earned = new Intl.NumberFormat('ko-KR', { signDisplay: 'exceptZero' });
 const damageDisplay = new Intl.NumberFormat('ko-KR', { maximumFractionDigits: 3 });
 const speedDisplay = new Intl.NumberFormat('ko-KR', { style: 'percent', maximumFractionDigits: 1 });
+const buffIcons = new Map([
+  ['INVINCIBLE', 'buff-invincible'], ['EXP_BOOST', 'buff-exp'], ['CELL_BOOST', 'buff-cell'],
+]);
 const audioChannels = { bgm: 'BGM', sfx: '효과음' } as const;
 const navigationSounds = new Set([
-  'main', 'modes', 'map', 'map-point', 'intro', 'next-line', 'skip-line', 'retry', 'result-map',
+  'main', 'modes', 'map', 'map-point', 'intro', 'endless', 'next-line', 'skip-line', 'retry', 'result-map',
   'upgrades', 'pets', 'gear', 'back-gear', 'rank', 'settings',
 ]);
 function minigameLevels(stats: StatUpgrade[]): Levels {
@@ -63,6 +66,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
         </div>
         <aside class="mg-hud">
           <p>${icon('hud-hp')} <strong class="mg-hp"></strong></p>
+          <p class="mg-entry-shield" hidden>${icon('buff-invincible')} <strong></strong></p>
           <button type="button" class="mg-skill" data-action="skill"><img alt=""><span></span></button>
           <p class="mg-keys">방향키 / WASD 이동<br>Shift 정밀 이동<br>Esc 일시정지</p>
         </aside>
@@ -98,6 +102,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   const area = overlay.querySelector('.mg-area')!;
   const time = overlay.querySelector('.mg-time')!;
   const hp = overlay.querySelector('.mg-hp')!;
+  const entryShield = overlay.querySelector<HTMLElement>('.mg-entry-shield')!;
+  const entryShieldTime = entryShield.querySelector('strong')!;
   const score = overlay.querySelector('.mg-score')!;
   const best = overlay.querySelector('.mg-best')!;
   const root = document.querySelector<HTMLElement>('#app')!;
@@ -107,6 +113,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   let zone = 0;
   let selected = 0;
   let active: RunSetup | undefined;
+  let pending: { mode: RunSetup['mode']; stage: number; request: GameStartRequest } | undefined;
+  let starting = false;
   let result: RunResult | undefined;
   let official: GameResult | undefined;
   let runId: number | null = null;
@@ -155,6 +163,9 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       : `${current.id} ${current.name}`);
     write(time, clock(game.elapsed));
     write(hp, `${game.player.hp} / ${game.player.maxHp} HP`);
+    const shieldSeconds = Math.ceil(game.player.entryShieldRemaining);
+    entryShield.hidden = shieldSeconds === 0;
+    write(entryShieldTime, `입장 무적 ${shieldSeconds}초`);
     write(score, (sortieScore(game.elapsed, game.purified) + game.zoneBonusScore).toLocaleString());
     write(best, (bestScores[key] ?? 0).toLocaleString());
     const cooldown = Math.ceil(game.pet.cooldownRemaining);
@@ -261,6 +272,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
   function main(): void {
     game.returnToMain();
     active = undefined;
+    pending = undefined;
     syncAudioPause();
     audio.setMusic('lobby');
     show(`
@@ -305,18 +317,73 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       ${button('modes', '모드 선택으로')}</div>`, '', false, focusPoint ? `[data-stage="${selected}"]` : undefined);
   }
 
-  function intro(): void {
-    const stage = stages[selected]!;
-    const allowed = canEnterStage(selected);
-    show(panel(`${stage.id} ${stage.name}`, `<p>${stage.intro}</p>
-      <p>목표 · ${stage.bossName} 정화 및 ${stage.objective}</p><p>5분까지 일반 웨이브 · 이후 보스전</p>
-      ${selected > 0 ? `<p>보스전은 ${BOSS_TIME_LIMIT}초 동안 진행돼요. 발사체 개수·피해량을 강화하거나 펫 설정에서 출전 펫을 바꿔 보세요.</p>` : ''}
-      ${allowed ? button('enter', '입장') : `<p>${stages[selected - 1]!.id} 클리어 후 입장할 수 있어요.</p>`}
-      ${button('map-point', '지도로')}`), areaImage(stage.zone, 'map'));
+  async function loadEntryBuffs(shop: HTMLElement): Promise<void> {
+    const list = shop.querySelector<HTMLElement>('.mg-buff-list')!;
+    list.innerHTML = '<p role="status">버프 목록을 불러오는 중…</p>';
+    try {
+      const buffs = await api.entryBuffs();
+      if (!shop.isConnected) return;
+      list.replaceChildren();
+      for (const { itemId, name, priceCell, effectConfig } of buffs) {
+        const { type, sec, percent } = effectConfig;
+        const key = typeof type === 'string' ? buffIcons.get(type) : undefined;
+        if (!key) continue;
+        const label = document.createElement('label');
+        label.innerHTML = `<input type="checkbox" name="entry-buff">${icon(key)}<span><strong></strong><small></small></span>`;
+        const input = label.querySelector('input')!;
+        input.value = String(itemId);
+        input.dataset.price = String(priceCell);
+        label.querySelector('strong')!.textContent = name;
+        const effect = type === 'INVINCIBLE' && typeof sec === 'number' ? `무적 ${sec}초`
+          : typeof percent === 'number' ? `${type === 'EXP_BOOST' ? '펫 경험치' : '점수 보상 셀'} ${1 + percent / 100}배` : '';
+        label.querySelector('small')!.textContent = [effect, `${priceCell.toLocaleString()}셀`].filter(Boolean).join(' · ');
+        list.append(label);
+      }
+      if (!list.childElementCount) list.textContent = '선택할 수 있는 입장 버프가 없어요.';
+    } catch {
+      if (shop.isConnected) list.innerHTML = `<p role="status">입장 버프를 불러오지 못했어요.</p>${button('reload-buffs', '다시 불러오기')}`;
+    }
   }
 
-  async function begin(runMode: RunSetup['mode'], index: number, isRetry = false): Promise<void> {
-    const allowed = runMode === 'endless' ? canEnterEndless() : canEnterStage(index);
+  function intro(runMode: RunSetup['mode'] = 'stage', isRetry = false): void {
+    const isStage = runMode === 'stage';
+    const stage = stages[isStage ? selected : endlessStages[0]]!;
+    const allowed = isStage ? canEnterStage(selected) : canEnterEndless();
+    retry = isRetry;
+    pending = undefined;
+    const details = isStage ? `<p>${stage.intro}</p>
+      <p>목표 · ${stage.bossName} 정화 및 ${stage.objective}</p><p>5분까지 일반 웨이브 · 이후 보스전</p>
+      ${selected > 0 ? `<p>보스전은 ${BOSS_TIME_LIMIT}초 동안 진행돼요. 발사체 개수·피해량을 강화하거나 펫 설정에서 출전 펫을 바꿔 보세요.</p>` : ''}`
+      : '<p>네 구역을 순환하며 오래 살아남으세요.</p>';
+    const shop = allowed ? `<section class="mg-entry-shop" aria-labelledby="mg-entry-title">
+      <h2 id="mg-entry-title">미니게임 입장 상점</h2>
+      ${debug ? '<p>디버그 모드에서는 입장 버프를 사용할 수 없어요.</p>' : ''}
+      <fieldset ${debug ? 'disabled' : ''} aria-labelledby="mg-entry-title">
+        <div class="mg-buff-list"></div>
+      </fieldset>
+      <p>${icon('hud-cell')} 보유 ${cells.toLocaleString()}셀 · <output>선택 합계 0셀</output></p>
+      ${debug ? '' : '<p>선택한 버프는 입장할 때 결제돼요.</p>'}
+    </section>` : `<p>${isStage ? stages[selected - 1]!.id : '4-3'} 클리어 후 입장할 수 있어요.</p>`;
+    show(panel(isStage ? `${stage.id} ${stage.name}` : '무한 모드 입장', `${details}${shop}
+      ${allowed ? button(isStage ? 'enter' : 'enter-endless', isStage ? '입장' : '전투 시작') : ''}
+      ${button(isStage ? 'map-point' : 'modes', isStage ? '지도로' : '모드 선택으로')}`),
+    isStage ? areaImage(stage.zone, 'map') : 'scenes/main-hangar');
+    const entryShop = menu.querySelector<HTMLElement>('.mg-entry-shop');
+    if (entryShop) {
+      entryShop.addEventListener('change', () => {
+        const total = Array.from(entryShop.querySelectorAll<HTMLInputElement>('input:checked:not(:disabled)'))
+          .reduce((sum, input) => sum + Number(input.dataset.price), 0);
+        write(entryShop.querySelector('output')!, `선택 합계 ${total.toLocaleString()}셀`);
+      });
+      void loadEntryBuffs(entryShop);
+    }
+  }
+
+  function begin(runMode: RunSetup['mode']): void {
+    if (starting) return;
+    const isStage = runMode === 'stage';
+    const index = isStage ? selected : endlessStages[0];
+    const allowed = isStage ? canEnterStage(index) : canEnterEndless();
     if (!allowed) return;
     if (!pets.find(pet => pet.userPetId === selectedPet)?.canSortie) {
       show(panel('출전할 수 있는 펫을 선택해 주세요.', button('pets', '펫 설정') + button('modes', '돌아가기')));
@@ -328,36 +395,74 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     rewardShown = false;
     audio.setMusic('lobby');
     saveError = '';
-    retry = isRetry;
+    const entryBuffItemIds = debug ? [] : Array.from(
+      menu.querySelectorAll<HTMLInputElement>('input[name="entry-buff"]:checked:not(:disabled)'), input => Number(input.value));
+    const request: GameStartRequest = {
+      mode: isStage ? 'STAGE' : 'ENDLESS',
+      stageNo: isStage ? stageInfo(index)?.stageNo : undefined,
+      userPetId: selectedPet,
+      practice: debug,
+      ...(entryBuffItemIds.length > 0 && { entryBuffItemIds, startRequestId: crypto.randomUUID() }),
+    };
+    pending = { mode: runMode, stage: index, request };
+    void confirmEntry();
+  }
+
+  async function confirmEntry(): Promise<void> {
+    if (!pending || starting) return;
+    const { mode: runMode, stage: index, request } = pending;
     const stage = stages[index]!;
+    starting = true;
     show(panel(stage.name, `<p role="status">출동을 준비하는 중…</p>${button('exit', '돌아가기')}`), areaImage(stage.zone, 'map'));
-    const used = runMode === 'endless' ? endlessStagePool.map(i => stages[i]!) : [stage];
+    let sent = false;
     try {
-      await loadBattle(used);
+      await loadBattle(runMode === 'endless' ? endlessStagePool.map(i => stages[i]!) : [stage]);
       if (disposed) return;
-      const start = await api.start({
-        mode: runMode === 'stage' ? 'STAGE' : 'ENDLESS',
-        stageNo: runMode === 'stage' ? stageInfo(index)?.stageNo : undefined,
-        userPetId: selectedPet, practice: debug,
-      });
+      menu.querySelector<HTMLButtonElement>('[data-action="exit"]')!.disabled = true;
+      sent = true;
+      const start = await api.start(request);
       if (disposed) {
         if (start.runId !== null) await api.abort(start.runId);
         return;
       }
       runId = start.runId;
+      if (start.balance !== undefined) changeBalance(start.balance);
       clearBonus = start.stage?.clearBonusScore ?? 0;
       const { ability, ...combat } = start.combatStats;
       const skill = abilityIds[ability.code]!;
       const pet = { ...battlePets.find(candidate => candidate.speciesId === start.pet.species.speciesId)!, ...combat,
         ability: { id: skill, name: ability.name, effectValue: ability.effectValue, cooldownSec: ability.cooldownSec } };
       stats = start.upgrades;
-      active = { mode: runMode, stage: index, levels: minigameLevels(stats), skill, pet };
-      if (runMode === 'endless') { play(); return; }
-      dialogue(stage.start, () => index === 0 ? tutorial() : play(), false);
+      const seconds = start.appliedBuffs.find(buff => buff.effectConfig.type === 'INVINCIBLE')?.effectConfig.sec;
+      const entryShieldSeconds = !request.practice && typeof seconds === 'number' && Number.isFinite(seconds)
+        ? Math.max(0, seconds) : 0;
+      active = { mode: runMode, stage: index, levels: minigameLevels(stats), skill, pet, entryShieldSeconds };
     } catch (error) {
       if (disposed) return;
-      fail('전투를 준비하지 못했어요.', error, runMode === 'endless' ? 'endless' : 'enter', runMode === 'endless' ? 'modes' : 'intro');
+      const status = (error as { status?: number } | null)?.status;
+      const rejected = status !== undefined && status >= 400 && status < 500 && status !== 408;
+      const paymentUnknown = sent && request.startRequestId && !rejected;
+      fail(paymentUnknown ? '출동 결과를 확인하지 못했어요.' : '입장하지 못했어요.', error, 'confirm-entry',
+        paymentUnknown ? 'exit' : runMode === 'endless' ? 'endless' : 'intro');
+      return;
+    } finally {
+      starting = false;
     }
+    pending = undefined;
+    if (runMode === 'stage') dialogue(stage.start, index === 0 ? tutorial : play, false);
+    else play();
+  }
+
+  function play(): void {
+    if (!active) return;
+    cancelAnimationFrame(portraitFrame);
+    menu.hidden = true;
+    battle.hidden = false;
+    battle.inert = false;
+    audio.stopEffects();
+    game.startRun(active);
+    audio.effect('launch');
+    canvas.focus();
   }
 
   function tutorial(): void {
@@ -378,14 +483,15 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
 
   function showLine(): void {
     const [who, text, tag] = lines[line]!;
-    const stage = stages[active!.stage]!;
+    const index = active!.stage;
+    const stage = stages[index]!;
     const overBattle = dialogueOnBattle && tag !== 'harmony';
     show(`<div class="mg-dialogue">
       ${tag ? '<canvas width="64" height="64" class="mg-portrait" aria-hidden="true"></canvas>'
         : `<img class="mg-portrait" src="${asset(`portraits/portrait-${who}`)}" alt="">`}
       <div><h2 tabindex="-1">${speakers[who]}</h2><p></p>
       <button type="button" data-action="next-line" aria-keyshortcuts="Space Enter">다음</button>
-      ${retry || stageInfo(active!.stage)?.cleared && !dialogueOnBattle ? button('skip-line', '건너뛰기') : ''}</div>
+      ${retry || stageInfo(index)?.cleared && !dialogueOnBattle ? button('skip-line', '건너뛰기') : ''}</div>
       </div>`, overBattle ? '' : areaImage(stage.zone, 'map'), overBattle);
     menu.querySelector('p')!.textContent = text;
     if (!tag) return;
@@ -402,18 +508,6 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       };
       portraitFrame = requestAnimationFrame(animate);
     }).catch(() => {});
-  }
-
-  function play(): void {
-    if (!active) return;
-    cancelAnimationFrame(portraitFrame);
-    menu.hidden = true;
-    battle.hidden = false;
-    battle.inert = false;
-    audio.stopEffects();
-    game.startRun(active);
-    audio.effect('launch');
-    canvas.focus();
   }
 
   function finish(run: RunResult): void {
@@ -674,8 +768,11 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       case 'map': map(); break;
       case 'map-point': map(true); break;
       case 'intro': intro(); break;
-      case 'enter': void begin('stage', selected, !!stageInfo(selected)?.cleared); break;
-      case 'endless': begin('endless', endlessStages[0]); break;
+      case 'enter': begin('stage'); break;
+      case 'confirm-entry': void confirmEntry(); break;
+      case 'endless': intro('endless'); break;
+      case 'enter-endless': begin('endless'); break;
+      case 'reload-buffs': void loadEntryBuffs(menu.querySelector('.mg-entry-shop')!); break;
       case 'next-line': if (++line < lines.length) showLine(); else dialogueDone(); break;
       case 'skip-line': dialogueDone(); break;
       case 'play': play(); break;
@@ -685,7 +782,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       case 'resume': game.resume(); canvas.focus(); break;
       case 'abort': game.abort(); break;
       case 'save-result': void saveResult(); showResult(); break;
-      case 'retry': if (result) { selected = result.stage; void begin(result.mode, result.stage, true); } break;
+      case 'retry': if (result) { selected = result.stage; intro(result.mode, true); } break;
       case 'result-map': selected = result!.stage; zone = stages[selected]!.zone; audio.setMusic('lobby'); map(true); break;
       case 'upgrades': showUpgrades(); break;
       case 'buy': {
@@ -741,7 +838,8 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       return;
     }
     if (event.key !== 'Tab') return;
-    const focusable = Array.from((menu.hidden ? battle : menu).querySelectorAll<HTMLElement>('button:not(:disabled), canvas[tabindex="0"]'))
+    const focusable = Array.from((menu.hidden ? battle : menu).querySelectorAll<HTMLElement>(
+      'button:not(:disabled), input:not(:disabled), canvas[tabindex="0"]'))
       .filter(element => !element.closest('[hidden]'));
     const first = focusable[0];
     const last = focusable.at(-1);

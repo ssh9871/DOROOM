@@ -143,7 +143,7 @@ export class Game {
     this.clearedAreas = [];
     this.zoneNotice = undefined;
     this.noticeTime = 0;
-    this.player.reset(this.setup.levels, setup.petLevel, setup.pet);
+    this.player.reset(this.setup.levels, setup.petLevel, setup.pet, setup.entryShieldSeconds);
     this.pet.reset(this.player, setup.skill, setup.pet);
     this.resetArea();
     this.state = 'playing';

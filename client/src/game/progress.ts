@@ -22,7 +22,10 @@ export type SkillId = keyof typeof skills;
 export const skillCooldown = 60;
 export const BOSS_TIME_LIMIT = 50;
 export const petDamageBonus = (level: number) => Math.min(3, Math.max(0, level - 1)) * 0.15;
-export type RunSetup = { mode: 'stage' | 'endless'; stage: number; levels: Levels; skill: SkillId; petLevel?: number; pet?: BattlePet };
+export type RunSetup = {
+  mode: 'stage' | 'endless'; stage: number; levels: Levels; skill: SkillId;
+  petLevel?: number; pet?: BattlePet; entryShieldSeconds?: number;
+};
 export type RunOutcome = 'clear' | 'return' | 'abort';
 export type RunResult = Pick<RunSetup, 'mode' | 'stage'> & {
   id: string; outcome: RunOutcome; seconds: number; purified: number; completedAt: number;

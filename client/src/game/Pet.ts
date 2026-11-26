@@ -40,7 +40,7 @@ export class Pet {
   }
 
   private apply(player: Player): void {
-    player.isShieldActive = this.skill === 'shield' && this.effectRemaining > 0;
+    player.petShieldActive = this.skill === 'shield' && this.effectRemaining > 0;
     player.fireRate = this.skill === 'rapid-fire' && this.effectRemaining > 0 ? this.pet?.ability.effectValue ?? 1.3 : 1;
   }
 
