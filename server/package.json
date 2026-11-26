@@ -12,7 +12,8 @@
     "batch:daily": "node src/batch/dailyHunger.js",
     "batch:weekly": "node src/batch/weeklyRanking.js",
     "smoke": "node scripts/smoke.js",
-    "dev:grant-pet": "node scripts/devGrantPet.js"
+    "dev:grant-pet": "node scripts/devGrantPet.js",
+    "dev:demo-pets": "node scripts/devDemoPets.js"
   },
   "engines": {
     "node": ">=20"

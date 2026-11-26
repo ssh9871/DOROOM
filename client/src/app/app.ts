@@ -1,4 +1,6 @@
 import { connectPetShop } from '../ui/petShop';
+import { createPetWindow, roomPetOf } from '../ui/petWindow';
+import type { Pet as ServerPet } from '../../../shared/types';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
 import { openGame } from '../ui/gameScreen';
@@ -152,19 +154,19 @@ export function startApp() {
     const shop = root!.querySelector<HTMLDialogElement>('#shop-dialog')!;
     const menu = root!.querySelector<HTMLElement>('#room-menu')!;
     const menuToggle = root!.querySelector<HTMLButtonElement>('#room-menu-toggle')!;
-    const equipButton = root!.querySelector<HTMLButtonElement>('#toggle-pet')!;
     let room: ReturnType<typeof import('../room/room').createRoom> | undefined;
-    const updateEquipment = () => {
-      root!.querySelector<HTMLElement>('#pet-equipped-badge')!.hidden = !petState.equipped;
-      equipButton.textContent = petState.equipped ? '해제' : '장착';
-      equipButton.classList.toggle('equipped', petState.equipped);
-      const saveNotice = root!.querySelector<HTMLElement>('#pet-save-notice')!;
-      saveNotice.hidden = petState.persistent && !petState.recovered;
-      saveNotice.textContent = !petState.persistent ? '저장할 수 없어 새로고침하면 변경 사항이 사라질 수 있어요.' : '잘못된 저장 값을 기본값으로 복구했어요.';
-      root!.querySelector('#pet-affection')!.textContent = `${petState.pet.affection}/100`;
-      root!.querySelector('#pet-hunger')!.textContent = `${petState.pet.hunger}/100`;
-      root!.querySelector('#pet-progress')!.textContent = `Lv. ${petState.pet.level} · 경험치 ${petState.pet.experience}/${petState.requiredExperience}`;
-    };
+    // 🟩 펫 창(P): 서버의 내 펫 목록으로 도감처럼 보여주고, 대표 펫을 마이룸에서 따라다니게 한다 (창규)
+    let representative: ServerPet | undefined;
+    let representativeKey = 'none';
+    const petWindow = createPetWindow(root!.querySelector<HTMLElement>('#pet-window')!, pet => {
+      representative = pet;
+      const key = pet ? `${pet.userPetId}` : 'none';
+      if (key === representativeKey) return;
+      representativeKey = key;
+      room?.setPet(roomPetOf(pet));
+    });
+    void petWindow.refresh();
+    const updateEquipment = () => { if (pets.open) void petWindow.refresh(); };
     const setMenu = (open: boolean) => {
       menu.hidden = !open;
       menuToggle.setAttribute('aria-expanded', String(open));
@@ -174,7 +176,7 @@ export function startApp() {
     const openPets = () => {
       if (dialog.open || pets.open || shop.open) return;
       setMenu(false);
-      updateEquipment();
+      void petWindow.refresh();
       pets.showModal();
       room?.setPaused(true);
     };
@@ -197,11 +199,6 @@ export function startApp() {
       room?.setPaused(false);
       canvas.focus();
     });
-    equipButton.addEventListener('click', () => {
-      petState.setEquipped(!petState.equipped);
-      updateEquipment();
-      room?.setPet(petState.equipped ? petState.pet : null);
-    });
     root!.querySelector('#exit-room')!.addEventListener('click', () => {
       setMenu(false);
       dialog.returnValue = '';
@@ -213,6 +210,12 @@ export function startApp() {
       else { room?.setPaused(false); canvas.focus(); }
     });
     const shortcut = (event: KeyboardEvent) => {
+      // 펫 창이 열려 있을 때 P 를 한 번 더 누르면 닫는다 (창규)
+      if (pets.open && event.code === 'KeyP' && !event.repeat && !event.ctrlKey && !event.altKey && !event.metaKey) {
+        event.preventDefault();
+        pets.close();
+        return;
+      }
       if (event.repeat || event.ctrlKey || event.altKey || event.metaKey || dialog.open || pets.open || shop.open) return;
       if (event.code === 'Escape' && !menu.hidden) {
         event.preventDefault();
@@ -246,7 +249,7 @@ export function startApp() {
         },
       });
       room.setPaused(!menu.hidden || pets.open || dialog.open || shop.open);
-      room.setPet(petState.equipped ? petState.pet : null);
+      room.setPet(roomPetOf(representative));
     } catch (error) {
       if (currentVersion !== version) return;
       root!.querySelector('.room-loading')!.textContent = '3D 마이룸을 시작할 수 없습니다. WebGL 지원 및 파일 연결을 확인해주세요.';

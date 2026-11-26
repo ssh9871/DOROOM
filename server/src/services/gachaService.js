@@ -43,8 +43,13 @@ export async function listPools(db, userId) {
     const rateOf = Object.fromEntries(rates.map(r => [r.grade, r.rate_bp]));
 
     const cand = (await db.query(
-      `SELECT e.entry_id,
+      `SELECT e.entry_id, e.is_drawable,
               s.species_id, s.name AS s_name, s.grade AS s_grade, s.model_url AS s_model,
+              s.code AS s_code, s.image_url AS s_image,
+              (e.species_id IS NOT NULL AND EXISTS (
+                 SELECT 1 FROM user_pet up WHERE up.user_id = $2 AND up.species_id = e.species_id)) AS owned_pet,
+              COALESCE((SELECT ue.quantity FROM user_equipment ue
+                         WHERE ue.user_id = $2 AND ue.equipment_id = e.equipment_id), 0) AS owned_qty,
               a.ability_id, a.code AS a_code, a.name AS a_name, a.effect_value, a.cooldown_sec,
               q.*
          FROM gacha_pool_entry e
@@ -52,20 +57,22 @@ export async function listPools(db, userId) {
          LEFT JOIN ability a ON a.ability_id = s.innate_ability_id
          LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
         WHERE e.pool_id = $1
-        ORDER BY e.entry_id`, [p.pool_id])).rows;
+        ORDER BY e.entry_id`, [p.pool_id, userId])).rows;
     const gradeOf = (c) => c.s_grade ?? c.grade;
     const countByGrade = {};
-    for (const c of cand) countByGrade[gradeOf(c)] = (countByGrade[gradeOf(c)] ?? 0) + 1;
+    // 확률은 실제로 뽑히는 후보(is_drawable)끼리만 나눈다. 도감용 후보는 0%
+    for (const c of cand) if (c.is_drawable) countByGrade[gradeOf(c)] = (countByGrade[gradeOf(c)] ?? 0) + 1;
 
     const entries = cand.map(c => {
       const g = gradeOf(c);
-      const probability = pct((rateOf[g] ?? 0) / countByGrade[g]);
+      const probability = c.is_drawable ? pct((rateOf[g] ?? 0) / countByGrade[g]) : 0;
       return c.species_id
         ? { species: { speciesId: c.species_id, name: c.s_name, grade: c.s_grade, modelUrl: c.s_model,
+                       code: c.s_code, imageUrl: c.s_image,
                        ability: { abilityId: c.ability_id, code: c.a_code, name: c.a_name,
                                   effectValue: Number(c.effect_value), cooldownSec: c.cooldown_sec } },
-            probability }
-        : { equipment: equipmentDto(c), probability };
+            probability, owned: c.owned_pet, drawable: c.is_drawable }  // 도감: 가진 펫은 컬러, 없으면 흐리게
+        : { equipment: equipmentDto(c), probability, owned: c.owned_qty > 0, drawable: c.is_drawable };
     });
 
     result.push({
@@ -103,7 +110,7 @@ export async function drawOnce(client, userId, poolId) {
        FROM gacha_pool_entry e
        LEFT JOIN pet_species s ON s.species_id = e.species_id
        LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
-      WHERE e.pool_id = $1`, [poolId])).rows;
+      WHERE e.pool_id = $1 AND e.is_drawable`, [poolId])).rows;   // 도감 전용 후보는 추첨에서 뺀다
   const byGrade = {};
   for (const c of cand) (byGrade[c.grade] ??= []).push(c);
 
@@ -172,6 +179,9 @@ export async function drawOnce(client, userId, poolId) {
         [userId, picked.species_id, first])).rows[0].user_pet_id;  // 첫 펫이면 대표 펫으로
     }
     result.pet = await getPet(client, userId, userPetId);
+    const img = (await client.query('SELECT code, image_url FROM pet_species WHERE species_id = $1', [picked.species_id])).rows[0];
+    result.pet.species.code = img.code;
+    result.pet.species.imageUrl = img.image_url;
     result.refundCell = refundCell;
   } else {
     await addEquipment(client, userId, picked.equipment_id, 1);

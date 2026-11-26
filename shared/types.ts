@@ -28,7 +28,10 @@ export interface CellTransaction {
 
 // ── 펫 ────────────────────────────────────────────────────────
 export interface Ability { abilityId: number; code: string; name: string; effectValue: number; cooldownSec: number; }
-export interface PetSpecies { speciesId: number; name: string; grade: Grade; ability: Ability; modelUrl: string | null; }
+export interface PetSpecies {
+  speciesId: number; name: string; grade: Grade; ability: Ability; modelUrl: string | null;
+  code?: string; imageUrl?: string | null;   // 도감·뽑기 그림 (/assets/pets/pet-{code}.png)
+}
 export interface Pet {
   userPetId: number; species: PetSpecies; nickname: string | null;
   level: number; exp: number; expToNext: number; evolutionStage: number;
@@ -76,7 +79,7 @@ export interface GachaPool {
   pityCount: number | null; dailyLimit: number | null; drawnToday: number;
   drawsSinceLegend: number | null;                       // 마지막 LEGEND 이후 뽑은 횟수 (천장 진행도)
   gradeRates: { grade: Grade; probability: number }[];   // 등급별 확률(%)
-  entries: { species?: PetSpecies; equipment?: Equipment; probability: number }[];
+  entries: { species?: PetSpecies; equipment?: Equipment; probability: number; owned: boolean; drawable: boolean }[];  // owned: 도감 컬러/흐림, drawable: false 면 도감에만 나오고 안 뽑힘
 }
 export interface GachaResult {
   gachaId: number; poolId: number; grade: Grade;

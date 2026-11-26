@@ -122,7 +122,7 @@ export async function assertPetCanSortie(db, userId, userPetId) {
 async function selectPets(db, userId, userPetId = null) {
   const { rows } = await db.query(
     `SELECT p.user_pet_id, p.nickname, p.level, p.exp, p.evolution_stage, p.hunger, p.affection, p.is_representative,
-            s.species_id, s.name AS species_name, s.grade, s.model_url,
+            s.species_id, s.name AS species_name, s.grade, s.model_url, s.code AS species_code, s.image_url,
             g.max_level, g.base_exp_per_level,
             a.ability_id, a.code AS ability_code, a.name AS ability_name, a.effect_value, a.cooldown_sec
        FROM user_pet p
@@ -151,6 +151,7 @@ export function toPetDto(r, sortieMinHunger) {
     userPetId: r.user_pet_id,
     species: {
       speciesId: r.species_id, name: r.species_name, grade: r.grade, modelUrl: r.model_url,
+      code: r.species_code, imageUrl: r.image_url,
       ability: { abilityId: r.ability_id, code: r.ability_code, name: r.ability_name,
                  effectValue: Number(r.effect_value), cooldownSec: r.cooldown_sec },
     },
@@ -162,4 +163,22 @@ export function toPetDto(r, sortieMinHunger) {
     isRepresentative: r.is_representative,
     canSortie: r.hunger >= sortieMinHunger,
   };
+}
+
+/**
+ * 대표 펫(마이룸에서 따라다니는 펫) 장착·해제. withTransaction 안에서 호출.
+ * 한 사람에 대표 펫은 1마리 (uq_user_pet_one_rep) → 다른 펫을 먼저 내린 뒤 올린다.
+ */
+export async function setRepresentative(client, userId, userPetId, on) {
+  const own = await client.query(
+    'SELECT 1 FROM user_pet WHERE user_id = $1 AND user_pet_id = $2 FOR UPDATE', [userId, userPetId]);
+  if (!own.rows.length) throw new AppError('NOT_FOUND', '펫 없음');
+  if (on) {
+    await client.query(
+      'UPDATE user_pet SET is_representative = FALSE WHERE user_id = $1 AND is_representative AND user_pet_id <> $2',
+      [userId, userPetId]);
+  }
+  await client.query('UPDATE user_pet SET is_representative = $3 WHERE user_id = $1 AND user_pet_id = $2',
+    [userId, userPetId, on]);
+  return getPet(client, userId, userPetId);
 }

@@ -1903,3 +1903,73 @@ body.leaderboard-open { overflow: hidden; }
 .mg-unlock { color: #adf6c9; }
 .mg-ranking { border-collapse: collapse; text-align: left; width: 100%; margin: 18px 0; }
 .mg-ranking th, .mg-ranking td { padding: 8px 10px; border-bottom: 1px solid #507088; }
+/* 🟩 펫 뽑기 탭 + 도감 (창규)
+   도감은 스티커 앨범: 가진 펫은 붙어 있고, 없는 펫은 실루엣만 남은 빈칸.
+   등급이 높을수록 칸이 커짐 (노말 작은 칸 / 레어 중간 / 레전드 큰 칸). */
+.gacha { display:grid; grid-template-columns:280px 1fr; gap:28px; align-items:start }
+.gacha-draw { display:flex; flex-direction:column; gap:14px }
+.gacha-window { display:flex; flex-direction:column; align-items:center; gap:6px; padding:8px 8px 12px; border-radius:10px; background:#141a1a; box-shadow:inset 0 0 0 2px var(--slot-line,#2d3837) }
+/* 정원판: 펫 그림이 정원판과 같은 기준으로 잘려 있어서 위치·크기가 고정값이다 (원본 386×320 기준) */
+.gacha-stage { position:relative; width:100%; aspect-ratio:386/320; border-radius:6px; overflow:hidden; background:#1f2526 url('/assets/pets/gacha-stage.png') center/100% 100% no-repeat }
+.gacha-stage::before { content:''; position:absolute; left:38%; top:53.5%; width:24%; height:7%; border-radius:50%; background:#0005; filter:blur(3px) }
+.gacha-stage .stage-pet { position:absolute; left:32.64%; top:18.75%; width:34.2%; height:auto; animation:stage-drop .32s ease-out }
+.gacha-window.is-empty .stage-pet { filter:brightness(0); opacity:.42; animation:none }
+.gacha-stage .stage-q { position:absolute; left:49.7%; top:40%; transform:translate(-50%,-50%); font-size:40px; font-weight:800; color:#e8efee; text-shadow:0 2px 0 #0006 }
+@keyframes stage-drop { from { transform:translateY(-14%); opacity:0 } to { transform:none; opacity:1 } }
+@media (prefers-reduced-motion: reduce) { .gacha-stage .stage-pet { animation:none } }
+.gacha-name { margin:0; font-size:17px }
+.gacha-name span { margin-left:4px; font-size:13px; font-weight:700; color:var(--grade-color) }
+.gacha-note { margin:0; color:#9fb0af; font-size:12px; text-align:center }
+.gacha-facts { margin:0; display:grid; gap:4px }
+.gacha-facts div { display:flex; justify-content:space-between; font-size:13px }
+.gacha-facts dt { color:#9fb0af }
+.gacha-facts dd { margin:0; color:#ffe0a0; font-weight:700 }
+.gacha-draw button { width:100% }
+.gacha-reason { margin:0; color:#d9a27a; font-size:12px }
+.gacha-dex header { display:flex; align-items:baseline; gap:12px; margin-bottom:18px }
+.gacha-dex h3 { margin:0; font-size:22px }
+.gacha-dex header p { margin:0; color:#9fb0af; font-size:13px }
+.dex-group h4 { display:flex; align-items:baseline; gap:8px; margin:0 0 10px; padding-bottom:6px; border-bottom:2px solid var(--grade-color); font-size:15px }
+.dex-group h4 span { color:var(--grade-color) }
+.dex-group h4 small { color:#7f8f8e; font-size:12px; font-weight:400 }
+.dex-group h4 em { margin-left:auto; font-style:normal; color:#c9d4d3; font-size:13px }
+.dex-slots { display:grid; grid-template-columns:repeat(auto-fill,minmax(68px,1fr)); gap:6px; margin:0 0 22px; padding:0; list-style:none }
+.dex-slot { display:flex; flex-direction:column; align-items:center; gap:3px; padding:6px 2px 7px; border:1.5px solid #2a3433; border-radius:6px; font-size:11px; color:#5d6b6a }
+.dex-slot img, .dex-slot .dex-noimg { width:46px; height:46px; object-fit:contain; filter:grayscale(1) brightness(.75); opacity:.35 } /* 없는 펫: 흑백으로 흐리게 */
+.dex-slot.owned { border:1.5px solid transparent; background:#253130; color:#e8efee; box-shadow:0 2px 0 #0006 }
+.dex-slot.owned img, .dex-slot.owned .dex-noimg { filter:none; opacity:1 }
+.dex-special { display:block } /* 레어·레전드도 노말과 같은 칸 크기, 세로로 쌓기 */
+.dex-slot img { transform:scale(1.28) translateY(-3%) } /* 펫 그림은 정원판 기준 캔버스라 여백이 있어서 칸 안에서는 조금 키운다 */
+.grade-rare .dex-slot.owned, .grade-legend .dex-slot.owned { border-color:var(--grade-color) }
+.dex-noimg { display:grid; place-items:center; border-radius:50%; background:#33403f; font-size:20px; color:#cfd8d7 }
+.grade-normal { --grade-color:#9ccfa9; --slot-line:#3f5a4a }
+.grade-rare { --grade-color:#7fb6ff; --slot-line:#3d6aa3 }
+.grade-legend { --grade-color:#f2b84b; --slot-line:#a87a24 }
+.visually-hidden { position:absolute; width:1px; height:1px; overflow:hidden; clip:rect(0 0 0 0); white-space:nowrap }
+@media (max-width:720px) {
+  .gacha { grid-template-columns:1fr }
+}
+
+/* 🟩 펫 창(P) — 도감처럼 칸 보여주기, 장착·해제 (창규) */
+.pet-list-count { grid-column:1 / -1; margin:0 0 2px; color:#8f9b9a; font-size:12px }
+.pet-dialog .pet-card { border-color:#2b3536; box-shadow:none; cursor:pointer }
+.pet-dialog .pet-card[aria-pressed="true"] { border-color:#24528b; box-shadow:0 0 0 3px #1c344c44 }
+.pet-dialog .pet-card.is-locked { color:#66736f; background:#161919 }
+.pet-dialog .pet-card.is-locked img, .pet-detail.is-locked .pet-preview img { filter:grayscale(1) brightness(.75); opacity:.38 }
+.pet-card img { transform:scale(1.25) }   /* 펫 그림은 정원판 기준 캔버스라 여백이 있다 */
+.pet-noimg { display:grid; place-items:center; width:72px; height:72px; border-radius:50%; background:#2c3536; font-size:26px }
+.pet-grade { margin-left:6px; font-size:13px; font-weight:700; vertical-align:2px }
+.pet-grade.grade-normal { color:#9ccfa9 } .pet-grade.grade-rare { color:#7fb6ff } .pet-grade.grade-legend { color:#f2b84b }
+.pet-progress { margin:0 0 16px; color:#b9c4c6; font-size:13px; font-weight:700 }
+.pet-window-message { min-height:18px; margin:10px 0 0; color:#8fd6b4; font-size:12px; text-align:center }
+.pet-equip-button:disabled { opacity:.6; cursor:wait }
+.pet-detail-empty { display:grid; place-items:center; padding:40px; color:#8f9b9a; text-align:center }
+.pet-detail-empty.is-full { grid-column:1 / -1 }
+.pet-dialog .pet-model-notice { margin:0; padding:0 24px 16px; color:#f0b46b; font-size:12px }
+/* 펫 창: 24칸이라 작게 4줄로, 목록만 스크롤 */
+.pet-dialog .pet-list { grid-template-columns:repeat(4,minmax(0,1fr)); gap:8px; max-height:560px; overflow-y:auto; align-content:start }
+.pet-dialog .pet-card { aspect-ratio:auto; min-height:104px; gap:6px; border-radius:12px; padding:8px 4px }
+.pet-dialog .pet-card img { width:52px; height:52px }
+.pet-dialog .pet-card strong { font-size:12px }
+.pet-dialog .pet-equipped-badge { top:5px; left:5px; font-size:10px; padding:2px 5px }
+@media (max-width: 720px) { .pet-dialog .pet-list { grid-template-columns:repeat(2,minmax(0,1fr)); max-height:none } }

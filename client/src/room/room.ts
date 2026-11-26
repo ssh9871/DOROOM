@@ -12,8 +12,57 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { loadModel } from './model';
 import { nearShop, shopPosition, nearPortal, portalPosition, stepFollowing, stepMotion, type Motion } from './movement';
-import type { Pet } from '../pets/pets';
+import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
+import { Texture } from '@babylonjs/core/Materials/Textures/texture';
+import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
+import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
+
+/** 마이룸에서 따라다니는 펫. 3D 모델(modelPath)이 있으면 그걸, 없으면 그림(imageUrl)을 세워서 보여준다. */
+export type RoomPet = { name: string; modelPath?: string | null; imageUrl?: string | null };
+type Companion = {
+  actor: TransformNode;
+  container: { meshes: AbstractMesh[]; animationGroups: AnimationGroup[]; dispose(): void };
+  face?: (dx: number) => void;
+};
+
+// 🟩 펫 그림(PNG)을 카메라를 향해 세운 판으로 보여주기 (창규)
+// 펫 그림은 정원판 기준 캔버스라 발끝이 아래에서 7.6% 위에 있다 → 그만큼 내려서 바닥에 세운다.
+function loadPicturePet(scene: Scene, url: string, height: number): Companion {
+  const actor = new TransformNode('pet-actor', scene);
+  const texture = new Texture(url, scene);
+  texture.hasAlpha = true;
+  const material = new StandardMaterial('pet-picture', scene);
+  material.diffuseTexture = texture;
+  material.useAlphaFromDiffuseTexture = true;
+  material.disableLighting = true;
+  material.emissiveColor = Color3.White();
+  material.backFaceCulling = false;
+  const plane = MeshBuilder.CreatePlane('pet-picture', { size: height }, scene);
+  plane.material = material;
+  plane.billboardMode = TransformNode.BILLBOARDMODE_Y;
+  plane.parent = actor;
+  plane.position.y = height / 2 - height * .076;
+  const shadowMaterial = new StandardMaterial('pet-blob', scene);
+  shadowMaterial.diffuseColor = Color3.Black();
+  shadowMaterial.disableLighting = true;
+  shadowMaterial.alpha = .28;
+  const blob = MeshBuilder.CreateDisc('pet-blob', { radius: height * .28, tessellation: 24 }, scene);
+  blob.material = shadowMaterial;
+  blob.rotation.x = Math.PI / 2;
+  blob.position.y = .01;
+  blob.parent = actor;
+  return {
+    actor,
+    container: {
+      meshes: [],                                   // 그림판은 그림자를 만들지 않는다 (대신 바닥에 둥근 그림자)
+      animationGroups: [],
+      dispose() { plane.dispose(); blob.dispose(); material.dispose(); shadowMaterial.dispose(); texture.dispose(); },
+    },
+    // 그림은 왼쪽을 보고 있다 → 오른쪽으로 걸을 때만 뒤집는다
+    face(dx) { if (Math.abs(dx) > .01) plane.scaling.x = dx > 0 ? -1 : 1; },
+  };
+}
 
 export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, loading: HTMLElement, options: {
   petRoom: boolean;
@@ -151,17 +200,17 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   let disposed = false;
   let paused = false;
   let petVersion = 0;
-  let companion: Awaited<ReturnType<typeof loadModel>> | undefined;
+  let companion: Companion | undefined;
   let companionAnimation = '';
   let actor: Awaited<ReturnType<typeof loadModel>> | undefined;
   let animation = '';
   const resetKeys = () => { keys.clear(); jumpRequested = false; };
-  const clearPet = (model: Awaited<ReturnType<typeof loadModel>>) => {
+  const clearPet = (model: Companion) => {
     model.container.meshes.forEach(mesh => shadows.removeShadowCaster(mesh));
     model.container.dispose();
     model.actor.dispose();
   };
-  const setPet = async (pet: Pet | null) => {
+  const setPet = async (pet: RoomPet | null) => {
     const version = ++petVersion;
     if (companion) { clearPet(companion); companion = undefined; }
     companionAnimation = '';
@@ -169,7 +218,9 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     options.onPetStatus(pet ? '펫을 불러오고 있어요.' : '');
     if (!pet) return;
     try {
-      const model = await loadModel(scene, pet.modelPath, .75);
+      const model: Companion = pet.modelPath ? await loadModel(scene, pet.modelPath, .75)
+        : pet.imageUrl ? loadPicturePet(scene, pet.imageUrl, 1.2)
+        : (() => { throw new Error('펫 모델·그림 없음'); })();
       if (disposed || version !== petVersion) { clearPet(model); return; }
       companion = model;
       model.actor.position.set(motion.x > 7.3 ? motion.x - 1.4 : motion.x + 1.4, 0, motion.z);
@@ -266,6 +317,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         const position = companion.actor.position;
         const moving = stepFollowing(position, motion, seconds);
         if (moving) companion.actor.rotation.y = Math.atan2(motion.x - position.x, motion.z - position.z);
+        if (moving) companion.face?.(motion.x - position.x);
         const nextPetAnimation = moving ? 'Walk' : 'Idle';
         if (nextPetAnimation !== companionAnimation) {
           companion.container.animationGroups.forEach(group => group.stop());
@@ -299,7 +351,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   };
   return {
     dispose,
-    setPet: (pet: Pet | null) => { void setPet(pet); },
+    setPet: (pet: RoomPet | null) => { void setPet(pet); },
     setPaused(value: boolean) {
       paused = value;
       resetKeys();
