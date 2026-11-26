@@ -16,12 +16,17 @@ const runIdOf = (req) => {
   return id;
 };
 
-// POST /game/start {mode, stageNo?, userPetId, buffItemIds?, practice?} → GameStart
+// POST /game/start {mode, stageNo?, userPetId, buffItemIds?, entryBuffItemIds?, startRequestId?, practice?} → GameStart
+//   buffItemIds      : 보유한 버프 아이템을 1개씩 소모 (기존 계약)
+//   entryBuffItemIds : 미니게임 상점에서 고른 버프를 이번 출동에만 셀로 결제 (응답에 balance)
+//   startRequestId   : 유료 출동 재전송 시 중복 결제 방지용. 새 출동마다 새 값, 재시도는 같은 값
 router.post('/start', wrap(async (req, res) => {
-  const { mode, stageNo, userPetId, buffItemIds, practice } = req.body ?? {};
+  const { mode, stageNo, userPetId, buffItemIds, entryBuffItemIds, startRequestId, practice } = req.body ?? {};
   const result = await withTransaction(client => startGame(client, req.userId, {
     mode, stageNo: stageNo == null ? undefined : Number(stageNo), userPetId: Number(userPetId),
-    buffItemIds: Array.isArray(buffItemIds) ? buffItemIds.map(Number) : [], practice: practice === true,
+    buffItemIds: Array.isArray(buffItemIds) ? buffItemIds.map(Number) : [],
+    entryBuffItemIds: Array.isArray(entryBuffItemIds) ? entryBuffItemIds.map(Number) : [],
+    startRequestId: startRequestId ?? null, practice: practice === true,
   }));
   ok(res, result, 201);
 }));
