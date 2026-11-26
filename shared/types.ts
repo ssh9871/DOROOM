@@ -79,7 +79,8 @@ export interface GachaPool {
   entries: { species?: PetSpecies; equipment?: Equipment; probability: number }[];
 }
 export interface GachaResult {
-  gachaId: number; balance: number; isDuplicate: boolean; isPity: boolean;
+  gachaId: number; poolId: number; grade: Grade;
+  balance: number; isDuplicate: boolean; isPity: boolean;
   pet?: Pet; equipment?: UserEquipment; refundCell?: number;
 }
 export interface GachaLog { gachaId: number; poolId: number; species?: PetSpecies; equipment?: Equipment; createdAt: string; }
