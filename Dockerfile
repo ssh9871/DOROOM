@@ -3,6 +3,7 @@ WORKDIR /app
 COPY client/package.json client/package-lock.json ./
 RUN npm ci --include=dev
 COPY client/ ./
+COPY shared/types.ts /shared/types.ts
 RUN npm test && npm run build
 
 FROM nginx:stable-alpine

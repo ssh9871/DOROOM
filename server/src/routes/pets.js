@@ -6,16 +6,23 @@ import { ok } from '../utils/response.js';
 import { AppError } from '../utils/errors.js';
 import { wrap } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
-// import { pool, withTransaction } from '../db/pool.js';
+import { pool } from '../db/pool.js';
+import { getPetCombatStats, listPets } from '../services/petService.js';
 // import { addCell } from '../services/cellService.js';
-// import { addPetExp, getPetCombatStats, assertPetCanSortie, getPet } from '../services/petService.js';
 // import { addItem, useItem, addEquipment, useEquipment, getInventory } from '../services/inventoryService.js';
 
 const router = Router();
 router.use(requireAuth);
 const todo = wrap(async () => { throw new AppError('NOT_IMPLEMENTED'); });
 
-router.get('/', todo);
+router.get('/', wrap(async (req, res) => ok(res, await listPets(pool, req.userId))));
+router.get('/:userPetId/combat-stats', wrap(async (req, res) => {
+  const userPetId = Number(req.params.userPetId);
+  if (!Number.isSafeInteger(userPetId) || userPetId <= 0) throw new AppError('VALIDATION', 'userPetId 오류');
+  const stats = await getPetCombatStats(pool, req.userId, userPetId);
+  res.set('Cache-Control', 'no-store');
+  ok(res, stats);
+}));
 router.get('/:userPetId', todo);
 router.patch('/:userPetId', todo);
 router.post('/:userPetId/feed', todo);

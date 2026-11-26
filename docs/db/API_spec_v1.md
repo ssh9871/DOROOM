@@ -101,6 +101,7 @@ addEquipment(client, userId, equipmentId, qty)
 | --- | --- | --- |
 | GET /pets | 내 펫 목록 | → Pet[] |
 | GET /pets/:userPetId | 펫 상세 (장비·전투 능력치 포함) | → PetDetail |
+| GET /pets/:userPetId/combat-stats | 내 펫의 출전 능력치 | → CombatStats (미니게임 전용 강화는 별도 적용) |
 | PATCH /pets/:userPetId | 이름 변경·대표 설정 | {nickname?, isRepresentative?} → Pet |
 | POST /pets/:userPetId/feed | 밥·간식·장난감 주기 | {itemId} → {pet: Pet, used: Item} |
 | POST /pets/:userPetId/pat | 쓰다듬기 (아이템 없음) | → Pet |
@@ -175,7 +176,7 @@ addEquipment(client, userId, equipmentId, qty)
 | GET /stages | 12개 지점(1-1 ~ 4-3) + 내 해금·클리어 상태 + 무한모드 해금 여부 | → StageList = {stages: Stage[], endlessUnlocked} |
 | POST /game/start | 게임 시작 (출전 검증 → 능력치·강화 반환 → game_run 생성) | {mode: "STAGE" 또는 "ENDLESS", stageNo?, userPetId, buffItemIds?, practice?} → GameStart |
 | POST /game/:runId/finish | 게임 종료 + 보상 (서버가 점수 계산) | {survivalMs, killCount, reachedWave, cleared, reviveUsed} → GameResult |
-| POST /game/:runId/abort | 중도 포기 (보상 없음) | → {runId} |
+| POST /game/:runId/abort | 중도 포기 (보상 없음) | → {runId}. 이미 중단한 출동에도 같은 응답 |
 | GET /game/history | 내 전적 | ?mode=ENDLESS&limit=20&offset=0 → GameRun[] |
 | GET /ranking | 주간 랭킹 | ?weekStart=YYYY-MM-DD&limit=10 → Ranking = {weekStart, myRank, entries} |
 
@@ -311,7 +312,10 @@ interface GameStart {
 interface GameFinishRequest { survivalMs: number; killCount: number; reachedWave: number; cleared: boolean; reviveUsed: boolean; }
 interface GameResult {
   runId: number; replayed: boolean; mode: "STAGE" | "ENDLESS"; stageNo: number | null;
-  score: number; rewardCell: number; firstClearBonus: number; expGained: number; cleared: boolean;
+  score: number;
+  rewardCell: number;      // 첫 클리어 보너스를 제외한 지급액
+  scoreRewardCell: number; // 스테이지 점수 보상. 무한 모드에서는 0
+  firstClearBonus: number; expGained: number; cleared: boolean;
   pet: Pet | null; balance: number; newRank: number | null;
 }
 interface GameRun {

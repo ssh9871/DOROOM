@@ -2,6 +2,8 @@
 !Dockerfile
 !client/
 !client/**
+!shared/
+!shared/types.ts
 client/node_modules/
 client/dist/
 **/.env

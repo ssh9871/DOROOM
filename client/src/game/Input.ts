@@ -7,7 +7,6 @@ export class Input {
   private readonly held = new Set<string>();
   private readonly pressed = new Set<string>();
   private attachedCanvas: HTMLCanvasElement | null = null;
-  private pointerHandler: ((event: MouseEvent) => void) | null = null;
 
   private readonly onKeyDown = (e: KeyboardEvent): void => {
     if (this.attachedCanvas && e.target !== this.attachedCanvas) return;
@@ -25,26 +24,18 @@ export class Input {
     this.clear();
   };
 
-  attach(canvas?: HTMLCanvasElement, onPointerDown?: (event: MouseEvent) => void): void {
+  attach(canvas: HTMLCanvasElement): void {
+    this.attachedCanvas = canvas;
     window.addEventListener('keydown', this.onKeyDown);
     window.addEventListener('keyup', this.onKeyUp);
     window.addEventListener('blur', this.onBlur);
-    if (canvas && onPointerDown) {
-      this.attachedCanvas = canvas;
-      this.pointerHandler = onPointerDown;
-      canvas.addEventListener('mousedown', this.pointerHandler);
-    }
   }
 
   detach(): void {
     window.removeEventListener('keydown', this.onKeyDown);
     window.removeEventListener('keyup', this.onKeyUp);
     window.removeEventListener('blur', this.onBlur);
-    if (this.attachedCanvas && this.pointerHandler) {
-      this.attachedCanvas.removeEventListener('mousedown', this.pointerHandler);
-    }
     this.attachedCanvas = null;
-    this.pointerHandler = null;
     this.held.clear();
     this.pressed.clear();
   }

@@ -69,6 +69,9 @@ check('GET /me/cells', cells.ok && cells.data.balance === 500 && cells.data.tran
 const { rows: [petRow] } = await pool.query(
   `INSERT INTO user_pet (user_id, species_id, hunger) VALUES ($1, 1, 100) RETURNING user_pet_id`, [userId]);
 const petId = petRow.user_pet_id;
+await pool.query(
+  `INSERT INTO user_pet_equipment (user_pet_id, slot_no, equipment_id)
+   SELECT $1, 1, equipment_id FROM equipment WHERE line_code = 'GLOVE' AND grade = 'RARE'`, [petId]);
 const lv = await withTransaction(c => addPetExp(c, petId, 150));           // NORMAL: Lv1→2 는 100 필요
 check('addPetExp 150 → Lv.2, 남은 50', lv.level === 2 && lv.exp === 50 && lv.expToNext === 200, JSON.stringify(lv));
 const stats = await getPetCombatStats(pool, userId, petId);
@@ -130,6 +133,9 @@ check('무한모드 잠김 → VALIDATION', !noEndless.ok && noEndless.error.cod
 // 남의 펫으로 시작 (seed kim 의 userPetId 1)
 const notMine = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 1, userPetId: 1 }, token);
 check('남의 펫으로 시작 → NOT_FOUND', !notMine.ok && notMine.error.code === 'NOT_FOUND');
+const owned = await api('GET', '/pets', null, token);
+check('GET /pets → 내 펫과 출전 가능 여부', owned.ok && owned.data.length === 1 &&
+  owned.data[0].userPetId === petId && owned.data[0].canSortie);
 
 // 연습 모드: 기록 없음
 const prac = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 5, userPetId: petId, practice: true }, token);
@@ -138,33 +144,63 @@ check('연습 모드 시작 (runId null, 잠긴 지점도 가능)', prac.ok && p
 // 1-1 시작 → 종료(클리어) → 첫 클리어 보상
 const g1 = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 1, userPetId: petId }, token);
 check('POST /game/start 1-1', g1.ok && g1.data.runId > 0 && g1.data.combatStats.attack > 0 && Array.isArray(g1.data.upgrades), JSON.stringify(g1.error ?? ''));
+check('장갑의 탄속 +20을 합산해 숫자 120 반환', g1.data?.combatStats.bulletSpeed === 120);
 const run1 = g1.data?.runId;
 const badFinish = await api('POST', `/game/${run1}/finish`, { survivalMs: 999999999, killCount: 1, reachedWave: 1, cleared: true, reviveUsed: false }, token);
 check('생존시간 조작 → VALIDATION', !badFinish.ok && badFinish.error.code === 'VALIDATION');
 const f1 = await api('POST', `/game/${run1}/finish`, { survivalMs: 3000, killCount: 4, reachedWave: 1, cleared: true, reviveUsed: false }, token);
-// score = 3*10 + 4*5 + 50(1-1 보너스) = 100, 반복보상 7 + 첫클리어 40, exp 10
-check('POST /game/:id/finish 1-1 클리어 (score 100, 셀 7+40)',
-  f1.ok && f1.data.score === 100 && f1.data.rewardCell === 7 && f1.data.firstClearBonus === 40 && f1.data.expGained === 10 && f1.data.balance === 1047,
+// score = 3*10 + 4*5 + 50(1-1 보너스) = 100, 점수 1셀 + 클리어 7셀 + 첫 클리어 40셀
+check('POST /game/:id/finish 1-1 첫 클리어 (score 100, 셀 1+7+40)',
+  f1.ok && f1.data.score === 100 && f1.data.scoreRewardCell === 1 && f1.data.rewardCell === 8 &&
+  f1.data.firstClearBonus === 40 && f1.data.expGained === 10 && f1.data.balance === 1048,
   JSON.stringify(f1.data ?? f1.error));
 const f1b = await api('POST', `/game/${run1}/finish`, { survivalMs: 3000, killCount: 4, reachedWave: 1, cleared: true, reviveUsed: false }, token);
-check('같은 run 재종료 → 같은 결과, replayed=true, 잔액 그대로', f1b.ok && f1b.data.replayed === true && f1b.data.balance === 1047 && f1b.data.score === 100);
+check('같은 run 재종료 → 보상 내역과 잔액 유지', f1b.ok && f1b.data.replayed === true && f1b.data.balance === 1048 &&
+  f1b.data.scoreRewardCell === 1 && f1b.data.rewardCell === 8 && f1b.data.firstClearBonus === 40);
 const ab1 = await api('POST', `/game/${run1}/abort`, null, token);
 check('끝난 판 abort → ALREADY_FINISHED', !ab1.ok && ab1.error.code === 'ALREADY_FINISHED');
 
 const st2 = await api('GET', '/stages', null, token);
 check('1-1 클리어 후 1-2 해금', st2.ok && st2.data.stages[0].cleared && st2.data.stages[1].unlocked && !st2.data.stages[2].unlocked);
 
-// 1-1 반복 클리어 → 반복 보상만
+// 1-1 반복 클리어 → 점수 보상 + 기본 클리어 보상
 const g2 = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 1, userPetId: petId }, token);
-const f2 = await api('POST', `/game/${g2.data.runId}/finish`, { survivalMs: 1000, killCount: 0, reachedWave: 1, cleared: true, reviveUsed: false }, token);
-check('1-1 반복 클리어 → 첫클리어 보너스 0', f2.ok && f2.data.firstClearBonus === 0 && f2.data.rewardCell === 7);
+const finishRepeat = () => api('POST', `/game/${g2.data.runId}/finish`,
+  { survivalMs: 3000, killCount: 4, reachedWave: 1, cleared: true, reviveUsed: false }, token);
+const repeated = await Promise.all([finishRepeat(), finishRepeat()]);
+check('1-1 반복 클리어 동시 정산 → 8셀 한 번 지급', repeated.filter(r => r.data?.replayed).length === 1 &&
+  repeated.every(r => r.ok && r.data.scoreRewardCell === 1 && r.data.firstClearBonus === 0 &&
+    r.data.rewardCell === 8 && r.data.balance === 1056));
 
 // abort
 const g3 = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 2, userPetId: petId }, token);
 const ab3 = await api('POST', `/game/${g3.data.runId}/abort`, null, token);
 check('POST /game/:id/abort', ab3.ok && ab3.data.runId === g3.data.runId);
+const ab3b = await api('POST', `/game/${g3.data.runId}/abort`, null, token);
+check('중단 재요청 → 같은 runId', ab3b.ok && ab3b.data.runId === g3.data.runId);
 const f3 = await api('POST', `/game/${g3.data.runId}/finish`, { survivalMs: 1000, killCount: 0, reachedWave: 1, cleared: false, reviveUsed: false }, token);
 check('중단된 판 finish → ALREADY_FINISHED', !f3.ok && f3.error.code === 'ALREADY_FINISHED');
+
+// 점수는 5점 단위이므로 100점 경계의 양쪽은 95점과 100점이다.
+const failureRuns = [];
+for (const [killCount, score, cells] of [[9, 95, 0], [10, 100, 1]]) {
+  const start = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 1, userPetId: petId }, token);
+  failureRuns.push(start.data.runId);
+  const finish = await api('POST', `/game/${start.data.runId}/finish`,
+    { survivalMs: 5000, killCount, reachedWave: 1, cleared: false, reviveUsed: false }, token);
+  check(`1-1 실패 ${score}점 → ${cells}셀`, finish.ok && !finish.data.cleared && finish.data.score === score &&
+    finish.data.scoreRewardCell === cells && finish.data.rewardCell === cells && finish.data.firstClearBonus === 0 &&
+    finish.data.expGained === Math.floor(score / 10) && finish.data.balance === 1056 + cells);
+}
+const { rows: stageLedger } = await pool.query(
+  `SELECT ref_id, reason, amount FROM cell_transaction
+     WHERE user_id = $1 AND ref_id = ANY($2::bigint[]) AND reason IN ('GAME_REWARD', 'STAGE_FIRST_CLEAR')
+     ORDER BY ref_id, reason`, [userId, [run1, g2.data.runId, g3.data.runId, ...failureRuns]]);
+check('스테이지 원장: 첫 클리어 8+40, 반복 8, 실패 1만 기록', stageLedger.length === 4 &&
+  stageLedger.map(row => `${row.ref_id}:${row.reason}:${row.amount}`).join(',') === [
+    `${run1}:GAME_REWARD:8`, `${run1}:STAGE_FIRST_CLEAR:40`,
+    `${g2.data.runId}:GAME_REWARD:8`, `${failureRuns[1]}:GAME_REWARD:1`,
+  ].join(','));
 
 // 4-3 클리어 처리(DB 직접) → 무한모드 해금 → 종료 → 랭킹
 await pool.query('INSERT INTO user_stage_clear (user_id, stage_no) SELECT $1, n FROM generate_series(1,12) n ON CONFLICT DO NOTHING', [userId]);
@@ -172,13 +208,15 @@ const g4 = await api('POST', '/game/start', { mode: 'ENDLESS', userPetId: petId 
 check('무한모드 시작 (4-3 클리어 후)', g4.ok && g4.data.mode === 'ENDLESS' && g4.data.stageNo === null, JSON.stringify(g4.error ?? ''));
 const f4 = await api('POST', `/game/${g4.data.runId}/finish`, { survivalMs: 2000, killCount: 20, reachedWave: 5, cleared: false, reviveUsed: true }, token);
 // score = 20 + 100 = 120 → 셀 1, exp 12
-check('무한모드 종료 (score 120, 셀 1, 순위 있음)', f4.ok && f4.data.score === 120 && f4.data.rewardCell === 1 && f4.data.newRank >= 1, JSON.stringify(f4.data ?? f4.error));
+check('무한모드 종료 (score 120, 셀 1, 순위 있음)', f4.ok && f4.data.score === 120 &&
+  f4.data.rewardCell === 1 && f4.data.scoreRewardCell === 0 && f4.data.newRank >= 1, JSON.stringify(f4.data ?? f4.error));
 const rk = await api('GET', '/ranking', null, token);
 check('GET /ranking (내 순위 포함, 상위 10 이내)', rk.ok && rk.data.myRank?.userId === userId && rk.data.entries.length <= 10 && /^\d{4}-\d{2}-\d{2}$/.test(rk.data.weekStart));
 const hist = await api('GET', '/game/history?mode=ENDLESS&limit=5', null, token);
 check('GET /game/history?mode=ENDLESS', hist.ok && hist.data.length === 1 && hist.data[0].mode === 'ENDLESS');
 const histAll = await api('GET', '/game/history', null, token);
-check('GET /game/history 전체 (4판, 연습 제외)', histAll.ok && histAll.data.length === 4);
+check('GET /game/history 전체 (6판, 첫 클리어 보상이 포함된 총액)', histAll.ok && histAll.data.length === 6 &&
+  histAll.data.find(run => run.runId === run1)?.rewardCell === 48);
 
 // 강화
 const up0 = await api('GET', '/stat-upgrades', null, token);
@@ -193,7 +231,7 @@ const g5 = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 1, userPet
 check('GameStart.upgrades 에 미니게임 강화 포함', g5.ok && g5.data.upgrades.find(u => u.statCode === 'PROJECTILE_COUNT')?.level === 2);
 
 // 스텁 라우트
-const stub = await api('GET', '/pets', null, token);
+const stub = await api('GET', `/pets/${petId}`, null, token);
 check('미구현 라우트 → 501 NOT_IMPLEMENTED', !stub.ok && stub.error.code === 'NOT_IMPLEMENTED');
 
 const { rows: [sum2] } = await pool.query(

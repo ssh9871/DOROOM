@@ -9,7 +9,7 @@
       "modelPath": "pet/simple-cat.glb",
       "previewPath": "/assets/previews/pet.png",
       "level": 1,
-      "experience": 100,
+      "experience": 0,
       "affection": 50,
       "hunger": 50,
       "ability": { "id": "shield", "name": "방어막" }

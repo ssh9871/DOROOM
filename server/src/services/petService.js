@@ -85,7 +85,7 @@ export async function getPetCombatStats(db, userId, userPetId) {
     `SELECT e.stat_code, e.stat_value
        FROM user_pet_equipment upe JOIN equipment e ON e.equipment_id = upe.equipment_id
       WHERE upe.user_pet_id = $1`, [userPetId]);
-  for (const r of eq.rows) stats[r.stat_code] = (stats[r.stat_code] ?? 0) + r.stat_value;
+  for (const r of eq.rows) stats[r.stat_code] = (stats[r.stat_code] ?? 0) + Number(r.stat_value);
 
   // 3) 영구 스탯 강화 (계정 전체 적용 [가정]). scope='PET' 코드만 합산 — 미니게임용(PROJECTILE_COUNT 등)은 GameStart.upgrades 로 따로 전달
   const up = await db.query(
@@ -119,8 +119,7 @@ export async function assertPetCanSortie(db, userId, userPetId) {
   return true;
 }
 
-/** user_pet 한 행 → Pet DTO (도로팜·미니게임 공용) */
-export async function getPet(db, userId, userPetId) {
+async function selectPets(db, userId, userPetId = null) {
   const { rows } = await db.query(
     `SELECT p.user_pet_id, p.nickname, p.level, p.exp, p.evolution_stage, p.hunger, p.affection, p.is_representative,
             s.species_id, s.name AS species_name, s.grade, s.model_url,
@@ -130,10 +129,21 @@ export async function getPet(db, userId, userPetId) {
        JOIN pet_species s ON s.species_id = p.species_id
        JOIN pet_grade_rule g ON g.grade = s.grade
        JOIN ability a ON a.ability_id = s.innate_ability_id
-      WHERE p.user_pet_id = $1 AND p.user_id = $2`, [userPetId, userId]);
-  if (!rows.length) throw new AppError('NOT_FOUND', '펫 없음');
+      WHERE p.user_id = $1 AND ($2::bigint IS NULL OR p.user_pet_id = $2)
+      ORDER BY p.is_representative DESC, p.user_pet_id`, [userId, userPetId]);
   const min = await getSetting(db, 'SORTIE_MIN_HUNGER', 30);
-  return toPetDto(rows[0], min);
+  return rows.map(row => toPetDto(row, min));
+}
+
+export function listPets(db, userId) {
+  return selectPets(db, userId);
+}
+
+export async function getPet(db, userId, userPetId) {
+  if (userPetId == null) throw new AppError('NOT_FOUND', '펫 없음');
+  const [pet] = await selectPets(db, userId, userPetId);
+  if (!pet) throw new AppError('NOT_FOUND', '펫 없음');
+  return pet;
 }
 
 export function toPetDto(r, sortieMinHunger) {
