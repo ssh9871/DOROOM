@@ -26,14 +26,54 @@ const gradeInfo: Record<Grade, { label: string; className: string }> = {
   RARE: { label: '레어', className: 'grade-rare' },
   LEGEND: { label: '레전드', className: 'grade-legend' },
 };
-// 뽑기 전 정원판에 세워 둘 실루엣(아무 큐브 펫이면 된다)
-const STAGE_MYSTERY = '/assets/pets/pet-polarbear.png';
 const escapeHtml =(text: string) => text.replace(/[&<>"']/g, ch => `&#${ch.charCodeAt(0)};`);
 const petImage = (src: string | null | undefined, name: string) => src
   ? `<img src="${src}" alt=""/>`
   : `<span class="dex-noimg" aria-hidden="true">${escapeHtml(name.slice(0, 1))}</span>`;
 
-function renderGacha(pool: GachaPool | undefined, balance: number | null, last: GachaResult | null, drawing: boolean) {
+// 🟩 4-4 뽑기 연출: idle → charging(서버 응답 대기, 실루엣 흔들림) → reveal(등급 색 빛기둥 + 진짜 펫 실루엣) → done(번쩍, 컬러 등장)
+type DrawPhase = 'idle' | 'charging' | 'reveal' | 'done';
+const REVEAL_MS: Record<Grade, number> = { NORMAL: 1000, RARE: 1350, LEGEND: 1950 };   // 알이 깨지는 0.35초 포함
+const MIN_CHARGE_MS = 1300;                                                             // 알이 흔들리고 금이 가는 시간
+
+// 펫 알 (직접 그린 SVG): 크림색 알 + 민트·살구 점 + 발바닥. 가운데 지그재그 선을 따라 위·아래 껍질로 나뉜다
+const EGG_SHAPE = 'M50 4C22 4 5 48 5 79C5 108 25 124 50 124C75 124 95 108 95 79C95 48 78 4 50 4Z';
+const EGG_ZIG = '0,72 12,72 20,61 30,73 40,60 50,73 60,60 70,73 80,61 88,72 100,72';
+const eggSvg = (mark: string) => `<svg class="stage-egg" viewBox="0 0 100 136" aria-hidden="true">
+    <defs>
+      <clipPath id="egg-top"><polygon points="0,0 100,0 ${EGG_ZIG.split(' ').reverse().join(' ')}"/></clipPath>
+      <clipPath id="egg-bottom"><polygon points="${EGG_ZIG} 100,136 0,136"/></clipPath>
+      <radialGradient id="egg-base" cx="36%" cy="30%" r="78%">
+        <stop offset="0" stop-color="#FFFEF8"/><stop offset=".45" stop-color="#FFF0D3"/>
+        <stop offset=".82" stop-color="#EBCB9E"/><stop offset="1" stop-color="#C9A274"/>
+      </radialGradient>
+      <radialGradient id="egg-shade" cx="36%" cy="30%" r="80%">
+        <stop offset=".5" stop-color="#7A4E22" stop-opacity="0"/><stop offset="1" stop-color="#5A3814" stop-opacity=".45"/>
+      </radialGradient>
+      <radialGradient id="egg-rim" cx="80%" cy="78%" r="40%">
+        <stop offset="0" stop-color="#FFE9C2" stop-opacity=".55"/><stop offset="1" stop-color="#FFE9C2" stop-opacity="0"/>
+      </radialGradient>
+    </defs>
+    <ellipse class="egg-ground" cx="52" cy="125" rx="34" ry="7" fill="#000" opacity=".35"/>
+    <path class="egg-whole" d="${EGG_SHAPE}" fill="url(#egg-base)"/>
+    ${['top', 'bottom'].map(part => `<g class="egg-${part}" clip-path="url(#egg-${part})">
+      <path d="${EGG_SHAPE}" fill="url(#egg-base)"/>
+      <ellipse cx="27" cy="47" rx="8" ry="9" fill="#8DD3B4"/><ellipse cx="73" cy="36" rx="6" ry="6.5" fill="#F4AE84"/>
+      <ellipse cx="80" cy="92" rx="7" ry="9.5" fill="#8DD3B4"/><ellipse cx="23" cy="99" rx="4.5" ry="5" fill="#F4AE84"/>
+      <g fill="#DDB892"><ellipse cx="50" cy="101" rx="7" ry="6"/><circle cx="41" cy="92" r="3"/><circle cx="47" cy="88" r="3"/><circle cx="53" cy="88" r="3"/><circle cx="59" cy="92" r="3"/></g>
+      <path d="${EGG_SHAPE}" fill="url(#egg-shade)"/>
+      <path d="${EGG_SHAPE}" fill="url(#egg-rim)"/>
+      <ellipse cx="34" cy="30" rx="9" ry="15" fill="#fff" opacity=".75" transform="rotate(-22 34 30)"/>
+      <ellipse cx="27" cy="52" rx="3" ry="5" fill="#fff" opacity=".45" transform="rotate(-15 27 52)"/>
+      <path d="${EGG_SHAPE}" fill="none" stroke="#8A6546" stroke-width="2" opacity=".7"/>
+    </g>`).join('')}
+    <polyline class="egg-crack" points="${EGG_ZIG.split(' ').slice(1, -1).join(' ')}" fill="none" stroke="#5B3F2C" stroke-width="3" stroke-linejoin="round"/>
+    ${mark ? `<text x="50" y="64" text-anchor="middle" class="egg-mark">${mark}</text>` : ''}
+  </svg>`;
+const reducedMotion = () => typeof matchMedia === 'function' && matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+function renderGacha(pool: GachaPool | undefined, balance: number | null, last: GachaResult | null, phase: DrawPhase, newSpeciesId: number | null) {
+  const drawing = phase === 'charging' || phase === 'reveal';
   if (!pool) return `<div class="shop-coming"><h3>펫 뽑기</h3><p>지금은 뽑기를 할 수 없어요. 잠시 후 다시 열어주세요.</p></div>`;
   const pets = pool.entries.filter(e => e.species);
   const left = pool.dailyLimit === null ? null : Math.max(0, pool.dailyLimit - pool.drawnToday);
@@ -42,15 +82,26 @@ function renderGacha(pool: GachaPool | undefined, balance: number | null, last: 
   const reason = left === 0 ? '오늘은 더 뽑을 수 없어요. 내일 다시 와주세요.' : lackCell ? '셀이 모자라요. 미니게임에서 모아오세요.' : '';
   const lastPet = last?.pet;
   // 정원판 위에 펫을 세운다. 펫 그림은 모두 같은 캔버스(정원판 기준 위치)로 잘려 있어서 위치를 따로 맞출 필요가 없다.
-  const stage = (pet: string) => `<div class="gacha-stage" aria-hidden="true">${pet}</div>`;
-  const window_ = lastPet
-    ? `<div class="gacha-window ${gradeInfo[last!.grade].className}" role="status">
-        ${stage(lastPet.species.imageUrl ? `<img class="stage-pet" src="${lastPet.species.imageUrl}" alt=""/>` : '')}
+  const stage = (pet: string, extra = '') => `<div class="gacha-stage${extra}" aria-hidden="true" data-skip>${pet}</div>`;
+  const beam = `<span class="stage-beam"></span><span class="stage-sparks"><i></i><i></i><i></i><i></i><i></i><i></i></span>`;
+  const window_ = phase === 'charging'
+    ? `<div class="gacha-window is-drawing phase-charging" role="status">
+        ${stage(eggSvg(''), ' is-charging')}
+        <p class="gacha-note">알이 흔들려요…</p>
+      </div>`
+    : phase === 'reveal' && lastPet
+    ? `<div class="gacha-window is-drawing phase-reveal ${gradeInfo[last!.grade].className}" role="status">
+        ${stage(`${beam}${lastPet.species.imageUrl ? `<img class="stage-pet" src="${lastPet.species.imageUrl}" alt=""/>` : ''}${eggSvg('')}`, ' is-reveal')}
+        <p class="gacha-note">${last!.grade === 'LEGEND' ? '엄청난 빛이…!' : last!.grade === 'RARE' ? '푸른 빛이 보여요!' : '누군가 나타났어요'}</p>
+      </div>`
+    : lastPet
+    ? `<div class="gacha-window ${gradeInfo[last!.grade].className}${phase === 'done' ? ' phase-done' : ''}" role="status">
+        ${stage(`${phase === 'done' ? '<span class="stage-flash"></span><span class="stage-ring"></span>' : ''}${lastPet.species.imageUrl ? `<img class="stage-pet" src="${lastPet.species.imageUrl}" alt=""/>` : ''}`)}
         <p class="gacha-name"><strong>${escapeHtml(lastPet.species.name)}</strong> <span>${gradeInfo[last!.grade].label}</span></p>
         <p class="gacha-note">${last!.isDuplicate ? `이미 있는 펫이라 ${last!.refundCell ?? 0}셀을 돌려받았어요` : '처음 만났어요'}</p>
       </div>`
     : `<div class="gacha-window is-empty">
-        ${stage(`<img class="stage-pet" src="${STAGE_MYSTERY}" alt=""/><span class="stage-q">?</span>`)}
+        ${stage(eggSvg('?'), ' is-idle')}
         <p class="gacha-note">어떤 펫이 나올까요</p>
       </div>`;
   const draw = `<section class="gacha-draw" aria-label="펫 뽑기">
@@ -69,8 +120,8 @@ function renderGacha(pool: GachaPool | undefined, balance: number | null, last: 
     const have = list.filter(e => e.owned).length;
     return `<section class="dex-group ${gradeInfo[grade].className}" aria-label="${gradeInfo[grade].label}">
         <h4><span>${gradeInfo[grade].label}</span>${rate === undefined ? '' : `<small>${rate}% 확률</small>`}<em>${have}/${list.length}</em></h4>
-        <ul class="dex-slots">${list.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}">
-            ${petImage(e.species!.imageUrl, e.species!.name)}<span>${escapeHtml(e.species!.name)}${e.owned ? '' : '<span class="visually-hidden">, 아직 없음</span>'}</span></li>`).join('')}</ul>
+        <ul class="dex-slots">${list.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.species!.speciesId === newSpeciesId ? ' is-new' : ''}">
+            ${e.species!.speciesId === newSpeciesId ? '<b class="dex-new">NEW</b>' : ''}${petImage(e.species!.imageUrl, e.species!.name)}<span>${escapeHtml(e.species!.name)}${e.owned ? '' : '<span class="visually-hidden">, 아직 없음</span>'}</span></li>`).join('')}</ul>
       </section>`;
   };
   const owned = pets.filter(e => e.owned).length;
@@ -97,7 +148,9 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   let loadError = '';
   let petPool: GachaPool | undefined;
   let lastDraw: GachaResult | null = null;
-  let drawing = false;
+  let phase: DrawPhase = 'idle';
+  let newSpeciesId: number | null = null;    // 방금 처음 만난 펫 → 도감 칸에 NEW
+  let skipReveal: (() => void) | null = null;
   tabList.innerHTML = tabs.map((label, index) => `<button role="tab" id="shop-tab-${index}" aria-controls="shop-panel" data-tab="${index}">${label}</button>`).join('');
   const refresh = () => {
     const pet = state.pet;
@@ -116,7 +169,7 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     const selector = `<aside class="shop-pet-list"><button class="pet-card" id="select-shop-pet" data-pet="${pet.id}" aria-pressed="${selectedPetId === pet.id}"><img src="${pet.previewPath}" alt=""/><strong>${pet.name}</strong><span>Lv. ${pet.level}</span></button><small>장착하지 않아도 돌볼 수 있어요.</small></aside>`;
     if (activeTab === 0) {
       panel.innerHTML = loadError ? `<p>${loadError}</p><button id="shop-reload" data-reload>다시 불러오기</button>`
-        : loading ? `<p>도감을 불러오고 있어요.</p>` : renderGacha(petPool, balance, lastDraw, drawing);
+        : loading ? `<p>도감을 불러오고 있어요.</p>` : renderGacha(petPool, balance, lastDraw, phase, newSpeciesId);
     } else if (activeTab === 1) {
       panel.innerHTML = `<div class="shop-coming">${preview}<h3>${tabs[activeTab]}</h3><p>새로운 만남을 준비하고 있어요.</p><button disabled>스킨 적용 준비 중</button></div>`;
     } else if (activeTab === 2) {
@@ -163,26 +216,44 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     onChange();
     panel.querySelector<HTMLButtonElement>(`#buy-${itemId}`)?.focus();
   };
-  // 뽑기: 서버가 셀 차감·펫 지급(또는 중복 환급)을 처리. 끝나면 도감·남은 횟수를 다시 불러옴
+  // 뽑기: 서버가 셀 차감·펫 지급(또는 중복 환급)을 처리. 결과가 오면 연출을 보여주고, 끝나면 도감·남은 횟수를 다시 그림
+  const wait = (ms: number) => new Promise<void>(resolve => {
+    const timer = setTimeout(() => { skipReveal = null; resolve(); }, ms);
+    skipReveal = () => { clearTimeout(timer); skipReveal = null; resolve(); };   // 정원판을 누르면 바로 결과로
+  });
   const draw = async (poolId: number) => {
-    drawing = true;
+    if (phase === 'charging' || phase === 'reveal') return;
+    const quick = reducedMotion();
+    phase = 'charging'; newSpeciesId = null; result.textContent = '';
     refresh();
+    const started = Date.now();
+    let nextPool: GachaPool | undefined;
     try {
       lastDraw = await drawGacha(poolId);
+      nextPool = (await getGachaPools()).find(p => p.poolType === 'PET');
+      if (!quick) {
+        await new Promise(r => setTimeout(r, Math.max(0, MIN_CHARGE_MS - (Date.now() - started))));
+        phase = 'reveal';
+        refresh();
+        await wait(REVEAL_MS[lastDraw.grade]);
+      }
       balance = lastDraw.balance;
-      result.textContent = lastDraw.pet
+      newSpeciesId = lastDraw.pet && !lastDraw.isDuplicate ? lastDraw.pet.species.speciesId : null;
+      if (nextPool) petPool = nextPool;
+      phase = dialog.open ? 'done' : 'idle';
+      if (!dialog.open) { lastDraw = null; newSpeciesId = null; }
+      result.textContent = lastDraw?.pet
         ? `${lastDraw.pet.species.name}(${gradeInfo[lastDraw.grade].label})${lastDraw.isDuplicate ? `, 이미 있는 펫이라 ${lastDraw.refundCell ?? 0}셀을 돌려받았어요.` : '을(를) 처음 만났어요.'}`
         : '';
-      petPool = (await getGachaPools()).find(p => p.poolType === 'PET');
     } catch (error) {
+      phase = lastDraw ? 'done' : 'idle';
       result.textContent = error instanceof Error ? error.message : '뽑기를 하지 못했어요.';
     }
-    drawing = false;
     refresh();
     onChange();
     panel.querySelector<HTMLButtonElement>('#gacha-draw')?.focus();
   };
-  const selectTab = (index: number) => { activeTab = index; result.textContent = ''; refresh(); panel.scrollTop = 0; };
+  const selectTab = (index: number) => { activeTab = index; result.textContent = ''; if (phase === 'done') { phase = 'idle'; newSpeciesId = null; } refresh(); panel.scrollTop = 0; };
   tabList.addEventListener('click', event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
     if (button) selectTab(Number(button.dataset.tab));
@@ -194,6 +265,7 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     tabList.querySelector<HTMLButtonElement>(`#shop-tab-${activeTab}`)!.focus();
   });
   panel.addEventListener('click', event => {
+    if (skipReveal && (event.target as HTMLElement).closest('[data-skip]')) { skipReveal(); return; }   // 연출 건너뛰기
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
     if (!button || button.disabled) return;
     let message: string | undefined;
@@ -211,6 +283,11 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
       else panel.focus();
       result.textContent = message;
     }
+  });
+  // 상점을 닫았다 다시 열면 뽑기 칸은 다시 알로 (연출 중이면 그대로 둠)
+  dialog.addEventListener('close', () => {
+    if (phase === 'charging' || phase === 'reveal') return;
+    phase = 'idle'; lastDraw = null; newSpeciesId = null;
   });
   return () => { selectTab(2); dialog.showModal(); void loadServer(); };
 }
