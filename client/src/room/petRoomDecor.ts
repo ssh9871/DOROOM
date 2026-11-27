@@ -468,6 +468,19 @@ function buildPavedPaths({ scene, merge, place }: Kit) {
   const onStairs = (x: number, z: number) => Math.abs(x - stairs.x) < stairs.hw + .3 && z > stairs.z0;
   // 다리를 건넌 뒤 돌계단으로 이어지는 구간은 계단 위 돌길과 같은 박석 바닥, 짙은 돌 연석입니다.
   const spiritAt = (self: number, x: number) => BRIDGES.some(b => b.line === self && x < b.x - .5);
+  // 길 바닥(끝이 반듯한 띠)까지의 거리: 양 끝에서는 길 밖으로 둥글게 넓히지 않는다
+  const slabDist = (line: readonly (readonly [number, number])[], x: number, z: number) => {
+    let best = Infinity;
+    for (let i = 0; i < line.length - 1; i++) {
+      const [ax, az] = line[i]!, [bx, bz] = line[i + 1]!;
+      const dx = bx - ax, dz = bz - az, len2 = dx * dx + dz * dz || 1;
+      const t = ((x - ax) * dx + (z - az) * dz) / len2;
+      if ((i === 0 && t < 0) || (i === line.length - 2 && t > 1)) continue;
+      const c = Math.max(0, Math.min(1, t));
+      best = Math.min(best, Math.hypot(x - ax - dx * c, z - az - dz * c));
+    }
+    return best;
+  };
   PATH_LINES.forEach((line, self) => {
     // 각 점의 진행 방향 오른쪽 단위 벡터
     const right = line.map((_, k) => {
@@ -525,7 +538,9 @@ function buildPavedPaths({ scene, merge, place }: Kit) {
       const offset = side * (half - curbHalf);
       const cut = (f: number) => {
         const [x, z] = at(f, offset);
-        return inPlaza(x, z) || bridgeAt(x, z, .3) || onStairs(x, z) || PATH_LINES.some((other, j) => j !== self && distToLine(other, x, z) < half + curbHalf);
+        // 다른 길 바닥 위면 끊는다. 길 바닥은 끝이 반듯하므로 끝을 둥글게 보지 않고(slabDist),
+        // 상대 연석 가운데까지 이어서 두 연석이 모서리에서 틈 없이 맞물리게 한다.
+        return inPlaza(x, z) || bridgeAt(x, z, .3) || onStairs(x, z) || PATH_LINES.some((other, j) => j !== self && slabDist(other, x, z) < half - curbHalf);
       };
       for (const run of runs(cut)) {
         const outer = offset + side * curbHalf, inner = offset - side * curbHalf;

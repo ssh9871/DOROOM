@@ -29,10 +29,16 @@ const gradeOrder: Record<Grade, number> = { NORMAL: 0, RARE: 1, LEGEND: 2 };
 const lineOrder = ['HELMET', 'GLOVE', 'BOOTS'];   // 모자 → 목걸이 → 신발 (상점 도감과 같은 순서)
 
 // 3D 모델이 있는 펫 (client/public/assets/pet/pet-{code}.glb). 없는 펫은 그림을 세워서 보여준다.
-const modelCodes = new Set(['dog', 'cat', 'panda', 'gumiho']);
+// 강아지·고양이(Unity 에셋), 판다·구미호(팀 생성 스크립트), 나머지 20종(tools/pet-models/generate.py 로 생성)
+const modelCodes = new Set(['dog', 'cat', 'panda', 'gumiho',
+  'rabbit', 'chick', 'bee', 'caterpillar', 'pig', 'fish', 'penguin', 'cow', 'boar', 'crab',
+  'koala', 'beaver', 'parrot', 'monkey', 'deer', 'elephant', 'giraffe', 'lion', 'polarbear', 'tiger']);
 // 마이룸에서 맞출 모델 전체 높이. 기본 .75 — 구미호는 꼬리가 머리 위로 솟아서 전체 높이로 맞추면 몸이 작아지므로
 // 몸통 높이가 판다와 같아지도록 크게 잡는다 (판다 몸통 1.44/전체 1.57, 구미호 몸통 1.27/전체 2.03 → 약 1.1)
-const modelHeight: Record<string, number> = { gumiho: 1.1 };
+// 생성 모델 20종은 몸통이 다른 펫과 비슷한 크기로 보이도록, 귀·뿔·꼬리까지 포함한 전체 높이를 모델마다 따로 잡는다.
+const modelHeight: Record<string, number> = { gumiho: 1.1,
+  beaver: .75, bee: .93, boar: .75, caterpillar: .78, chick: .74, cow: .76, crab: .71, deer: .88, elephant: .66, fish: .7,
+  giraffe: .82, koala: .76, lion: .78, monkey: .82, parrot: .77, penguin: .66, pig: .73, polarbear: .75, rabbit: .99, tiger: .81 };
 /** 마이룸이 따라다니게 할 펫 정보 (room.setPet 에 그대로 넘긴다) */
 export const roomPetOf = (pet: Pet | undefined) => pet
   ? { id: String(pet.userPetId), name: pet.nickname ?? pet.species.name,
@@ -302,7 +308,7 @@ export function createPetWindow(container: HTMLElement, onRepresentativeChange: 
     if (card) {
       selected = Number(card.dataset.species);
       const slot = slots.find(s => s.species.speciesId === selected);
-      if (slot) setDemoPick('PET', slot.species.speciesId, slot.species.name);   // 시연: 다음 펫 뽑기 결과로 지정
+      if (slot && !slot.pet) setDemoPick('PET', slot.species.speciesId, slot.species.name);   // 시연: 아직 없는 펫만 다음 뽑기 결과로 지정 (펫은 중복 없이 뽑힘)
       message = ''; render(); return;
     }
     const gearCard = target.closest<HTMLElement>('[data-gear]');

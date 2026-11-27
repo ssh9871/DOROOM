@@ -143,8 +143,10 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
   const left = pool.dailyLimit === null ? null : Math.max(0, pool.dailyLimit - pool.drawnToday);
   const lackCell = balance !== null && balance < pool.costCell;
   const pick = peekDemoPick(kind);   // 시연: 도감에서 고른 펫·장비 (다음 뽑기 1회 확정, 하루 횟수 제한 없음)
-  const disabled = drawing || lackCell || (left === 0 && !pick);
-  const reason = lackCell ? '셀이 모자라요. 미니게임에서 모아오세요.' : left === 0 && !pick ? '오늘은 더 뽑을 수 없어요. 내일 다시 와주세요.' : '';
+  // 펫은 중복 없이 뽑히므로, 뽑을 수 있는 펫을 다 만났으면 더 뽑을 수 없다
+  const allMet = pet && pool.entries.every(e => !e.species || e.owned || !e.drawable);
+  const disabled = drawing || lackCell || ((left === 0 || allMet) && !pick);
+  const reason = allMet && !pick ? '모든 펫을 만났어요!' : lackCell ? '셀이 모자라요. 미니게임에서 모아오세요.' : left === 0 && !pick ? '오늘은 더 뽑을 수 없어요. 내일 다시 와주세요.' : '';
   const got = resultOf(last);
   const box = pet ? eggSvg : anvilSvg;   // 모루에는 물음표 없음
   const shown = (e: DexEntry) => e.imageUrl ? `<img class="stage-pet${pet ? '' : ' stage-equip'}" src="${e.imageUrl}" alt=""/>` : '';
@@ -201,7 +203,7 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
     const sub = rate !== undefined ? `<small>${rate}% 확률</small>` : '';
     return `<section class="dex-group ${gradeInfo[grade].className}" aria-label="${gradeInfo[grade].label}">
         <h4><span>${gradeInfo[grade].label}</span>${sub}<em>${have}/${rows.length}</em></h4>
-        <ul class="dex-slots">${rows.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.key === newKey ? ' is-new' : ''}${pet ? '' : ' is-equip'} is-pickable${pick && e.key === `${pet ? 'p' : 'e'}${pick.id}` ? ' is-picked' : ''}" data-pick="${e.key.slice(1)}" data-pick-name="${escapeHtml(e.name)}" role="button" tabindex="0" aria-label="${escapeHtml(e.name)}, 다음 뽑기로 지정">
+        <ul class="dex-slots">${rows.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.key === newKey ? ' is-new' : ''}${pet ? '' : ' is-equip'} is-pickable${pick && e.key === `${pet ? 'p' : 'e'}${pick.id}` ? ' is-picked' : ''}" data-pick="${e.key.slice(1)}"${pet && e.owned ? ' data-owned' : ''} data-pick-name="${escapeHtml(e.name)}" role="button" tabindex="0" aria-label="${escapeHtml(e.name)}, 다음 뽑기로 지정">
             ${e.key === newKey ? '<b class="dex-new">NEW</b>' : ''}${e.qty ? `<b class="dex-qty">×${e.qty}</b>` : ''}${petImage(e.imageUrl, e.name)}<span>${escapeHtml(e.name)}${e.owned ? '' : '<span class="visually-hidden">, 아직 없음</span>'}</span></li>`).join('')}</ul>
       </section>`;
   };
@@ -508,6 +510,8 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
   const pickDex = (slot: HTMLElement) => {
     if (phase === 'charging' || phase === 'reveal') return;
     const pickId = Number(slot.dataset.pick);
+    // 펫은 중복 없이 뽑히므로 이미 가진 펫은 지정할 수 없다
+    if (gachaKind === 'PET' && slot.hasAttribute('data-owned')) { result.textContent = `${slot.dataset.pickName}은(는) 이미 함께하는 펫이에요.`; return; }
     if (peekDemoPick(gachaKind)?.id === pickId) takeDemoPick(gachaKind);
     else setDemoPick(gachaKind, pickId, slot.dataset.pickName ?? '');
     const picked = peekDemoPick(gachaKind);

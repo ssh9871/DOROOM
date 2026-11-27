@@ -12,7 +12,7 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { loadModel } from './model';
 import { buildPetRoom } from './petRoomDecor';
-import { blocked, flatWorld, nearShop, petRadius, nearPortal, portalPosition, roomLimit, stepFollowing, stepMotion, type Motion } from './movement';
+import { airborne, blocked, flatWorld, nearShop, petRadius, nearPortal, portalPosition, roomLimit, stepFollowing, stepMotion, type Motion } from './movement';
 import { petRoomLayout } from './petRoomMap';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
@@ -236,7 +236,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
       jumpRequested = false;
       actor.actor.position.set(motion.x, motion.y, motion.z);
       if (x || z) actor.actor.rotation.y = Math.atan2(x, z);
-      const next = motion.y > 0 ? 'Jump' : x || z ? 'Run' : 'Idle';
+      const next = airborne(motion, world) ? 'Jump' : x || z ? 'Run' : 'Idle';   // 테라스 위에서도 바닥 기준으로 판단
       if (next !== animation) {
         actor.container.animationGroups.forEach(group => group.stop());
         const group = actor.container.animationGroups.find(group => group.name.endsWith(`|${next}`));
@@ -256,6 +256,8 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         if (Math.hypot(motion.x - position.x, motion.z - position.z) > 9) position.set(motion.x, 0, motion.z);
         const moving = stepFollowing(position, motion, seconds, layout.limit, world);
         position.y = world.height(position.x, position.z);
+        // 걷기 동작이 없는 모델(생성 모델·그림 펫)은 걸을 때 통통 튀게 한다
+        if (moving && !companion.container.animationGroups.length) position.y += Math.abs(Math.sin(performance.now() / 1000 * 11)) * .08;
         if (moving) companion.actor.rotation.y = Math.atan2(motion.x - position.x, motion.z - position.z);
         if (moving) companion.face?.(motion.x - position.x);
         const nextPetAnimation = moving ? 'Walk' : 'Idle';

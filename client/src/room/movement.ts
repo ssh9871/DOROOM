@@ -49,6 +49,9 @@ export function stepMotion(state: Motion, inputX: number, inputZ: number, jump: 
   if (state.y === ground) state.velocityY = 0;
 }
 
+// 공중에 떠 있는지: 높이 0이 아니라 그 자리의 바닥(테라스·계단) 기준. 내리막에서 잠깐 뜨는 정도는 땅으로 본다.
+export const airborne = (state: Pick<Motion, 'x' | 'y' | 'z'>, world = flatWorld) => state.y > world.height(state.x, state.z) + .2;
+
 export const portalPosition = { x: 0, z: 7 };
 
 export function nearPortal(state: Pick<Motion, 'x' | 'y' | 'z'>, portal = portalPosition, world = flatWorld) {

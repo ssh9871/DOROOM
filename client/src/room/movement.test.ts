@@ -1,4 +1,4 @@
-import { blocked, flatWorld, nearShop, nearPortal, petRadius, portalPosition, stepFollowing, stepMotion, type Motion } from './movement.ts';
+import { airborne, blocked, flatWorld, nearShop, nearPortal, petRadius, portalPosition, stepFollowing, stepMotion, type Motion } from './movement.ts';
 import { BRIDGE, BRIDGES, petRoomLayout, STATION, STREAM, TERRACE, terrainHeight } from './petRoomMap.ts';
 
 function assert(condition: boolean, message: string) {
@@ -98,3 +98,18 @@ wader.y = world.height(wader.x, wader.z);
 for (let i = 0; i < 300; i++) stepMotion(wader, -1, 0, false, .02, limit, world);
 assert(wader.x > streamX, 'Stream cannot be waded across away from the bridge');
 console.log('Bridge: 4 checks passed');
+
+// 테라스(높이 2) 위에서도 점프 판정은 그 자리 바닥 기준 (예전엔 y > 0 이라 테라스에서 계속 점프 자세로 굳음)
+{
+  const world = petRoomLayout.world, limit = petRoomLayout.limit;
+  const walker = { x: 0, y: world.height(0, 18), z: 18, velocityY: 0 };
+  assert(walker.y === TERRACE.height && !airborne(walker, world), 'Standing on the terrace is not airborne');
+  let floated = false;
+  for (let i = 0; i < 400 && walker.z > 4; i++) { stepMotion(walker, 0, -1, false, 1 / 60, limit, world); floated ||= airborne(walker, world); }
+  assert(walker.z <= 4 && !floated, 'Walking down the ramp never counts as a jump');
+  const hopper = { x: 0, y: world.height(0, 18), z: 18, velocityY: 0 };
+  stepMotion(hopper, 0, 0, true, .05, limit, world);
+  for (let i = 0; i < 3; i++) stepMotion(hopper, 0, 0, false, .05, limit, world);
+  assert(airborne(hopper, world), 'Jumping on the terrace is airborne');
+  console.log('Terrace jump state: 3 checks passed');
+}

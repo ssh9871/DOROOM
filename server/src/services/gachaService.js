@@ -118,7 +118,10 @@ export async function drawOnce(client, userId, poolId, { forceId = null } = {}) 
        FROM gacha_pool_entry e
        LEFT JOIN pet_species s ON s.species_id = e.species_id
        LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
-      WHERE e.pool_id = $1 AND e.is_drawable`, [poolId])).rows;   // 도감 전용 후보는 추첨에서 뺀다
+      WHERE e.pool_id = $1 AND e.is_drawable
+        -- 펫은 중복 없이: 이미 가진 펫은 후보에서 뺀다 (장비는 합치기 재료라 중복 허용)
+        AND (e.species_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM user_pet u WHERE u.user_id = $2 AND u.species_id = e.species_id))`, [poolId, userId])).rows;   // 도감 전용 후보는 추첨에서 뺀다
   const byGrade = {};
   for (const c of cand) (byGrade[c.grade] ??= []).push(c);
 
@@ -126,7 +129,9 @@ export async function drawOnce(client, userId, poolId, { forceId = null } = {}) 
   const rates = (await client.query(
     'SELECT grade, rate_bp FROM gacha_grade_rate WHERE pool_id = $1', [poolId])).rows
     .filter(r => r.rate_bp > 0 && byGrade[r.grade]?.length);
-  if (!rates.length) throw new AppError('VALIDATION', '뽑기 후보가 없습니다');
+  if (!rates.length && !forceId) {
+    throw new AppError('VALIDATION', poolRow.pool_type === 'PET' ? '모든 펫을 만났어요' : '뽑기 후보가 없습니다');
+  }
 
   let grade;
   let isPity = false;
@@ -141,6 +146,10 @@ export async function drawOnce(client, userId, poolId, { forceId = null } = {}) 
          LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
         WHERE e.pool_id = $1 AND e.${column} = $2`, [poolId, forceId])).rows[0];
     if (!picked) throw new AppError('VALIDATION', '이 뽑기에 없는 후보입니다');
+    if (picked.species_id && (await client.query(
+      'SELECT 1 FROM user_pet WHERE user_id = $1 AND species_id = $2', [userId, picked.species_id])).rows.length) {
+      throw new AppError('VALIDATION', '이미 함께하는 펫이에요');
+    }
     grade = picked.grade;
   } else if (poolRow.pity_count && byGrade.LEGEND?.length
       && (await drawsSinceLegend(client, userId, poolId)) >= poolRow.pity_count - 1) {
