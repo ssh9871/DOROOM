@@ -495,10 +495,11 @@ const petStorage = () => ({
   removeItem: key => petSave.delete(key),
 });
 const petState = createPetState(petStorage);
-assert.equal(battlePets.length, 4);
+assert.deepEqual(battlePets.map(pet => pet.speciesCode), ['dog', 'cat', 'panda', 'gumiho']);
 assert.equal(petState.equipRunPet('unknown-pet'), false);
 const petAssets = new URL('../../public/assets/minigame/', import.meta.url);
-for (const sprite of [...battlePets.flatMap(pet => pet.sprite ? [pet.sprite] : []), 'pets/pet-gumiho-001']) {
+for (const { id, sprite } of battlePets) {
+  assert.equal(sprite, `pets/${id}`);
   const sheet = JSON.parse(readFileSync(new URL(`${sprite}.json`, petAssets)));
   assert.deepEqual(sheet.meta.frameTags.map(({ name, from, to }) => [name, from, to]),
     [['idle', 0, 2], ['cast', 3, 4]], sprite);

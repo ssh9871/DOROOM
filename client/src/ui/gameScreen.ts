@@ -254,7 +254,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       ]);
       if (disposed) return;
       stageList = stagesData;
-      pets = owned.filter(pet => battlePets.some(asset => asset.speciesId === pet.species.speciesId) &&
+      pets = owned.filter(pet => battlePets.some(asset => asset.speciesCode === pet.species.code) &&
         Object.hasOwn(abilityIds, pet.species.ability.code));
       selectedPet = (pets.find(pet => pet.canSortie) ?? pets[0])?.userPetId ?? 0;
       stats = upgradesData;
@@ -430,7 +430,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
       clearBonus = start.stage?.clearBonusScore ?? 0;
       const { ability, ...combat } = start.combatStats;
       const skill = abilityIds[ability.code]!;
-      const pet = { ...battlePets.find(candidate => candidate.speciesId === start.pet.species.speciesId)!, ...combat,
+      const pet = { ...battlePets.find(candidate => candidate.speciesCode === start.pet.species.code)!, ...combat,
         ability: { id: skill, name: ability.name, effectValue: ability.effectValue, cooldownSec: ability.cooldownSec } };
       stats = start.upgrades;
       const seconds = start.appliedBuffs.find(buff => buff.effectConfig.type === 'INVINCIBLE')?.effectConfig.sec;
@@ -659,7 +659,7 @@ export function openGame(onClose: () => void, onBalance: (cells: number) => void
     show(panel('펫 설정', `
       <div class="mg-columns mg-pet-columns">
         <div class="mg-pet-list">${pets.map(candidate => {
-          const sprite = battlePets.find(pet => pet.speciesId === candidate.species.speciesId)?.sprite;
+          const sprite = battlePets.find(pet => pet.speciesCode === candidate.species.code)?.sprite;
           return `<button type="button" data-pet="${candidate.userPetId}" aria-pressed="${candidate === owned}">${sprite ? `<img src="${asset(`${sprite}-preview`)}" alt="">` : ''}</button>`;
         }).join('')}</div>
         <section><h2></h2><p>진화 ${owned.evolutionStage}단계</p>
