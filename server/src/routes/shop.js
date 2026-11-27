@@ -13,7 +13,7 @@ router.use(requireAuth);
 
 // 도로팜 상점에서 파는 아이템 종류. 경험치 포션(EXP_POTION)·게임 버프(GAME_BUFF)는 미니게임 안에서 판매 (11/23 석훈)
 // 아이템 자체는 DB에 그대로 있음 — 미니게임이 같은 item 표를 씀
-const DOROFARM_SHOP_TYPES = ['FOOD', 'SNACK', 'TOY', 'EVOLVE_STONE'];
+const DOROFARM_SHOP_TYPES = ['FOOD', 'SNACK', 'TOY', 'EXP_POTION', 'EVOLVE_STONE'];
 // 미니게임 상점 목록: 활성 입장 버프(무적·경험치·셀). 구매는 /shop/buy 가 아니라 출동 시작 때 결제 (11/26 석훈)
 const MINIGAME_SHOP_TYPES = ['GAME_BUFF'];
 

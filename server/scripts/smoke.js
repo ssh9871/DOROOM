@@ -230,8 +230,12 @@ check('발사체 개수 2단계 만렙 → 3번째는 VALIDATION', buyPc1.ok && 
 const g5 = await api('POST', '/game/start', { mode: 'STAGE', stageNo: 1, userPetId: petId, practice: true }, token);
 check('GameStart.upgrades 에 미니게임 강화 포함', g5.ok && g5.data.upgrades.find(u => u.statCode === 'PROJECTILE_COUNT')?.level === 2);
 
-// 스텁 라우트
-const stub = await api('GET', `/pets/${petId}`, null, token);
+// 펫 상세 (11/27 창규 구현) — 칸 3개 + 전투 능력치
+const det = await api('GET', `/pets/${petId}`, null, token);
+check('GET /pets/:id → PetDetail (칸 3개 + combatStats)', det.ok && det.data.equipments?.length === 3 && typeof det.data.combatStats?.maxHp === 'number');
+
+// 스텁 라우트 (진화는 아직 미구현)
+const stub = await api('POST', `/pets/${petId}/evolve`, {}, token);
 check('미구현 라우트 → 501 NOT_IMPLEMENTED', !stub.ok && stub.error.code === 'NOT_IMPLEMENTED');
 
 const { rows: [sum2] } = await pool.query(

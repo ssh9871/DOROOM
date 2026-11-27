@@ -47,6 +47,7 @@ const equipmentDto = (r) => ({
   equipmentId: r.equipment_id, lineCode: r.line_code, name: r.name, slotType: r.slot_type, grade: r.grade,
   statCode: r.stat_code, statValue: r.stat_value, nextEquipmentId: r.next_equipment_id,
   mergeCount: r.merge_count, mergeCellCost: r.merge_cell_cost, modelUrl: r.model_url,
+  imageUrl: `/assets/equipment/equip-${String(r.line_code).toLowerCase()}-${String(r.grade).toLowerCase()}.png`,   // 장비 그림 (창규, 3D 렌더)
 });
 
 /** 인벤토리 → { items: UserItem[], equipments: UserEquipment[] } */
