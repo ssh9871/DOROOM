@@ -1,5 +1,5 @@
 // 🟩 펫 창(P) API  담당: 창규
-import type { Pet, PetDetail, PetGear } from '../../../shared/types';
+import type { Item, Pet, PetDetail, PetGear } from '../../../shared/types';
 import { authRequest } from './shop';
 
 export const getMyPets = () => authRequest<Pet[]>('/pets');
@@ -14,3 +14,10 @@ export const unequipFromPet = (userPetId: number, slotNo: number) =>
   authRequest<PetDetail>(`/pets/${userPetId}/equipments/${slotNo}`, { method: 'DELETE' });
 // 내 펫 전부의 장비 칸 (누가 어떤 장비를 끼고 있는지)
 export const getPetGear = () => authRequest<PetGear[]>('/pets/equipments');
+// 돌보기·성장: 밥·간식·장난감 주기 / 쓰다듬기 / 경험치 포션 / 진화
+export const feedPet = (userPetId: number, itemId: number) =>
+  authRequest<{ pet: Pet; used: Item }>(`/pets/${userPetId}/feed`, { method: 'POST', body: JSON.stringify({ itemId }) });
+export const patPet = (userPetId: number) => authRequest<Pet>(`/pets/${userPetId}/pat`, { method: 'POST' });
+export const usePetPotion = (userPetId: number, itemId: number) =>
+  authRequest<Pet>(`/pets/${userPetId}/use-potion`, { method: 'POST', body: JSON.stringify({ itemId }) });
+export const evolvePet = (userPetId: number) => authRequest<Pet>(`/pets/${userPetId}/evolve`, { method: 'POST' });

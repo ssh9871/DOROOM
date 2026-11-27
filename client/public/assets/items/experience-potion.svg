@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <defs>
+    <linearGradient id="glass" x2="1" y2=".7" gradientUnits="objectBoundingBox">
+      <stop stop-color="#f1fffa"/><stop offset=".5" stop-color="#cef2df"/><stop offset="1" stop-color="#78b7a2"/>
+    </linearGradient>
+    <linearGradient id="liquid" x2=".5" y2="1" gradientUnits="objectBoundingBox">
+      <stop stop-color="#a6e6a7"/><stop offset="1" stop-color="#3a9b78"/>
+    </linearGradient>
+    <linearGradient id="cork" x2="1" y2=".3" gradientUnits="objectBoundingBox">
+      <stop stop-color="#e2b078"/><stop offset="1" stop-color="#a36f48"/>
+    </linearGradient>
+  </defs>
+  <ellipse cx="62" cy="110" rx="37" ry="7" fill="#315c48" opacity=".15"/>
+  <g transform="rotate(-11 63 65)" stroke-linejoin="round">
+    <path d="M52 32h24v15c0 8 5 12 12 18 7 6 13 14 13 24 0 14-11 19-37 19S27 103 27 89c0-10 6-18 13-24 7-6 12-10 12-18Z" fill="url(#glass)" stroke="#528775" stroke-width="1.8"/>
+    <path d="M35 80c12-8 25-9 34-3 8 5 16 5 24 2 2 4 3 7 3 11 0 10-9 14-32 14s-32-4-32-14c0-4 1-7 3-10Z" fill="url(#liquid)"/>
+    <path d="M35 80c12-8 25-9 34-3 8 5 16 5 24 2" fill="none" stroke="#d7f4bd" stroke-width="2"/>
+    <path d="M57 44v6c0 10-8 16-16 24m-3 10-1 4" fill="none" stroke="#fcfff4" stroke-width="3" stroke-linecap="round"/>
+    <path d="M54 23h20l-2 13H56Z" fill="url(#cork)" stroke="#a3724b" stroke-width="1.4"/>
+    <rect x="51" y="18" width="26" height="9" rx="3.5" fill="url(#cork)" stroke="#a3724b" stroke-width="1.4"/>
+    <rect x="48" y="33" width="32" height="8" rx="4" fill="url(#glass)" stroke="#689786" stroke-width="1.4"/>
+    <path d="M64 74q2 11 12 13-10 3-12 13-3-10-13-13 10-2 13-13Z" fill="#fff4b6"/>
+    <g fill="#e0f9cc"><circle cx="80" cy="91" r="2"/><circle cx="48" cy="92" r="1.6"/><circle cx="78" cy="71" r="2.3"/></g>
+  </g>
+  <path d="M96 35q2 7 9 9-7 2-9 9-2-7-9-9 7-2 9-9Zm12 18q1 4 5 5-4 1-5 5-1-4-5-5 4-1 5-5Z" fill="#d7a748"/>
+</svg>

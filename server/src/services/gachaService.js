@@ -9,6 +9,13 @@ import { getPet } from './petService.js';
 const GRADES = ['NORMAL', 'RARE', 'LEGEND'];
 const pct = (bp) => Math.round(bp) / 100;                       // 만분율 → % (8500 → 85)
 
+// 시연용 하루 뽑기 횟수 보너스 (회원·뽑기·한국 날짜별, 서버 메모리에만 — 서버를 다시 켜면 사라짐)
+const demoBonus = new Map();
+const kstDay = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+const bonusKey = (userId, poolId) => `${userId}:${poolId}:${kstDay()}`;
+export const addDemoDraws = (userId, poolId, n) => demoBonus.set(bonusKey(userId, poolId), (demoBonus.get(bonusKey(userId, poolId)) ?? 0) + n);
+const dailyLimitOf = (userId, p) => p.daily_limit ? p.daily_limit + (demoBonus.get(bonusKey(userId, p.pool_id)) ?? 0) : p.daily_limit;
+
 /** 오늘(한국시간) 이 뽑기를 몇 번 했는지 */
 export async function drawnToday(db, userId, poolId) {
   const { rows } = await db.query(
@@ -77,7 +84,7 @@ export async function listPools(db, userId) {
 
     result.push({
       poolId: p.pool_id, poolType: p.pool_type, name: p.name, costCell: p.cost_cell,
-      pityCount: p.pity_count, dailyLimit: p.daily_limit,
+      pityCount: p.pity_count, dailyLimit: dailyLimitOf(userId, p),
       drawnToday: await drawnToday(db, userId, p.pool_id),
       drawsSinceLegend: p.pity_count ? await drawsSinceLegend(db, userId, p.pool_id) : null,
       gradeRates: GRADES.filter(g => rateOf[g] != null && countByGrade[g]).map(g => ({ grade: g, probability: pct(rateOf[g]) })),
@@ -93,15 +100,16 @@ export async function listPools(db, userId) {
  *      → 기록 → 셀 차감 → 펫 지급 or 중복 환급 / 장비 수량 +1
  * @returns GachaResult
  */
-export async function drawOnce(client, userId, poolId) {
+export async function drawOnce(client, userId, poolId, { forceId = null } = {}) {
   const poolRow = (await client.query('SELECT * FROM gacha_pool WHERE pool_id = $1 AND is_active', [poolId])).rows[0];
   if (!poolRow) throw new AppError('NOT_FOUND', '없는 뽑기입니다');
 
   // 같은 사람이 동시에 여러 번 누르면 한 번씩 차례로 처리되게 회원 행을 잠금
   await client.query('SELECT 1 FROM app_user WHERE user_id = $1 FOR UPDATE', [userId]);
 
-  if (poolRow.daily_limit && (await drawnToday(client, userId, poolId)) >= poolRow.daily_limit) {
-    throw new AppError('DAILY_LIMIT', `오늘은 ${poolRow.daily_limit}번까지 뽑을 수 있어요`);
+  const dailyLimit = dailyLimitOf(userId, poolRow);
+  if (!forceId && dailyLimit && (await drawnToday(client, userId, poolId)) >= dailyLimit) {
+    throw new AppError('DAILY_LIMIT', `오늘은 ${dailyLimit}번까지 뽑을 수 있어요`);
   }
 
   // 후보 (등급별로 묶기)
@@ -122,7 +130,19 @@ export async function drawOnce(client, userId, poolId) {
 
   let grade;
   let isPity = false;
-  if (poolRow.pity_count && byGrade.LEGEND?.length
+  let picked;
+  if (forceId) {
+    // 시연용 지정 뽑기: 이 뽑기의 후보(도감 전용 포함) 중 지정한 펫(speciesId)·장비(equipmentId)를 그대로 지급
+    const column = poolRow.pool_type === 'PET' ? 'species_id' : 'equipment_id';
+    picked = (await client.query(
+      `SELECT e.species_id, e.equipment_id, COALESCE(s.grade, q.grade) AS grade
+         FROM gacha_pool_entry e
+         LEFT JOIN pet_species s ON s.species_id = e.species_id
+         LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
+        WHERE e.pool_id = $1 AND e.${column} = $2`, [poolId, forceId])).rows[0];
+    if (!picked) throw new AppError('VALIDATION', '이 뽑기에 없는 후보입니다');
+    grade = picked.grade;
+  } else if (poolRow.pity_count && byGrade.LEGEND?.length
       && (await drawsSinceLegend(client, userId, poolId)) >= poolRow.pity_count - 1) {
     grade = 'LEGEND';                                   // 천장: 30번째는 LEGEND 확정
     isPity = true;
@@ -136,8 +156,10 @@ export async function drawOnce(client, userId, poolId) {
   }
 
   // 2) 그 등급 안에서 균등 추첨
-  const list = byGrade[grade];
-  const picked = list[randomInt(list.length)];
+  if (!picked) {
+    const list = byGrade[grade];
+    picked = list[randomInt(list.length)];
+  }
 
   // 3) 결과 처리
   let isDuplicate = false;

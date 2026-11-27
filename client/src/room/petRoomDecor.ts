@@ -9,7 +9,7 @@ import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
-import { createPetYard, type EquippedPet } from './petYard';
+import { createPetYard, type EquippedPet, type YardPet } from './petYard';
 import { boulder, buildSanctuary, paint, rockColor, SPIRIT_RAMP, stoneWalkTexture } from './petSanctuary';
 import { buildPond } from './petPond';
 import { buildStream } from './petStream';
@@ -17,7 +17,7 @@ import { buildStarGarden } from './petStarGarden';
 import { buildWorldTree } from './worldTree';
 import {
   BENCHES, BRIDGE, BRIDGES, CAROUSEL, FALL_X, FLOWER_BEDS, GATE, HALF, INFO, LIMIT, PLAZA, PLAZA_BOWLS, POND, PORTAL, RAMPS, RAMP_SIDES, ROCKS,
-  PATH_LINES, PATH_WIDTH, POOL, STAR_GARDEN, inStarGarden, PORTAL_PLAZA_R, CASCADE, STATION, STREAM, TELESCOPE, TERRACE, TERRACE_WALLS, UPPER, UPPER_WALLS, WHEEL, YARD_TREES, bridgeDeck, distToLine, inSanctuary, nearStream, onPath, petWorld, terrainHeight,
+  PATH_LINES, PATH_WIDTH, POOL, STAR_GARDEN, inStarGarden, PORTAL_PLAZA_R, CASCADE, STATION, STREAM, TELESCOPE, TERRACE, TERRACE_WALLS, UPPER, UPPER_WALLS, WHEEL, YARD_TREES, bridgeDeck, distToLine, inSanctuary, inNormalArea, nearStream, onPath, petWorld, terrainHeight,
 } from './petRoomMap';
 
 // 펫 마이룸 전용 꾸미기: 도로랜드 펫 정원.
@@ -72,6 +72,8 @@ export function buildPetRoom(scene: Scene, shadows: ShadowGenerator, glow: GlowL
       { x: 10, z: 2 }, { x: -18.5, z: -1.5 }, { x: -2.5, z: 21.8 }, { x: 10, z: 16 }, { x: 20, z: 21 }, { x: 1, z: 26.5 }, { x: -6, z: -12 },
     ],
     balls: [{ x: 13, z: -10 }, { x: 0, z: -6 }, { x: 5, z: 15.2 }, { x: -15.8, z: -12.6 }],
+    // 노멀: 정원 오른쪽에서만 (성역·별빛 정원 사이로 가지 않음)
+    normal: p => inNormalArea(p.x, p.z),
     // 등급 전용 구역(장착한 펫은 제한 없음)
     zones: {
       // 레어: 별빛 정원(분수 광장, 별 관측 정자, 수정 꽃밭과 나무 곁, 두 아치 안쪽)
@@ -92,7 +94,10 @@ export function buildPetRoom(scene: Scene, shadows: ShadowGenerator, glow: GlowL
       },
     },
   });
-  return { syncYardPets: (equipped: EquippedPet | null) => yard.sync(equipped) };
+  return {
+    syncYardPets: (equipped: EquippedPet | null) => yard.sync(equipped),
+    setYardPets: (pets: YardPet[]) => yard.setOwned(pets),
+  };
 }
 
 export type Kit = ReturnType<typeof gardenKit>;

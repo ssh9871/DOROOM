@@ -6,13 +6,14 @@ import { MeshBuilder } from '@babylonjs/core/Meshes/meshBuilder';
 import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { loadModel } from './model';
+import { loadPicturePet, type Companion } from './petPicture';
 import { blocked, canStand, petRadius, type World } from './movement';
-import { pet as demoPet, type Pet } from '../pets/pets';
+import type { Grade } from '../../../shared/types';
 
-// 보유 펫 목록. 지금은 로컬 데모 데이터(pets.json)의 한 마리뿐입니다.
-// 서버 GET /pets가 구현되면 이 함수만 서버 응답으로 바꾸면 마당에 여러 마리가 나옵니다.
+// 마당 펫: 서버 GET /pets 의 보유 펫. 3D 모델이 있으면 모델, 없으면 그림을 세워서 보여줍니다.
+export type YardPet = { id: string; name: string; grade: Grade; modelPath?: string | null; imageUrl?: string | null; height?: number };
+// 장착 펫은 id(userPetId)로 구분하고, id가 없으면 이름으로 구분합니다.
 export type EquippedPet = { id?: string; name: string };
-const ownedPets = (): Pet[] => [demoPet];
 
 type Point = { x: number; z: number };
 export type YardArea = {
@@ -26,12 +27,14 @@ export type YardArea = {
   // 등급 전용 구역: 레전더리는 영산 성역, 레어는 2단 전망대 안에서만 놉니다.
   // 노멀은 두 구역 밖(마을·광장·공원)에서만 놉니다. 장착해서 데리고 다니는 펫은 이 제한을 받지 않습니다.
   zones: Record<Exclude<Zone, 'NORMAL'>, { contains: (p: Point) => boolean; spots: Point[] }>;
+  // 노멀이 놀 수 있는 곳 (없으면 두 등급 구역 밖 전체)
+  normal?: (p: Point) => boolean;
 };
 
 export type Zone = 'LEGEND' | 'RARE' | 'NORMAL';
-export const zoneOf = (pet: Pet): Zone => pet.grade === 'LEGEND' ? 'LEGEND' : pet.grade === 'RARE' ? 'RARE' : 'NORMAL';
+export const zoneOf = (pet: { grade: Grade }): Zone => pet.grade === 'LEGEND' ? 'LEGEND' : pet.grade === 'RARE' ? 'RARE' : 'NORMAL';
 
-type Model = Awaited<ReturnType<typeof loadModel>>;
+type Model = Companion;
 type Roamer = { model: Model; zone: Zone; target: Point; wait: number; hop: number; hopHeight: number; time: number; chasing: Ball | null };
 type Ball = { mesh: Mesh; vx: number; vz: number };
 
@@ -45,7 +48,7 @@ export function createPetYard(scene: Scene, shadows: ShadowGenerator, area: Yard
   const { zones } = area;
   // 자기 등급 구역 안만 다닐 수 있고, 노멀은 어느 등급 구역에도 들어가지 않습니다.
   const allowed = (zone: Zone, p: Point) => zone === 'NORMAL'
-    ? !zones.LEGEND.contains(p) && !zones.RARE.contains(p)
+    ? !zones.LEGEND.contains(p) && !zones.RARE.contains(p) && (area.normal?.(p) ?? true)
     : zones[zone].contains(p);
   const inside = (p: Point) => Math.abs(p.x) <= area.limit - .8 && Math.abs(p.z) <= area.limit - .8 && !blocked(world, p.x, p.z, petRadius + .3);
   const spotsFor = (zone: Zone) => zone === 'NORMAL' ? area.spots.filter(p => allowed('NORMAL', p)) : zones[zone].spots;
@@ -84,10 +87,12 @@ export function createPetYard(scene: Scene, shadows: ShadowGenerator, area: Yard
     roamers.delete(id);
   };
 
-  const add = async (pet: Pet) => {
+  const add = async (pet: YardPet) => {
     loading.add(pet.id);
     try {
-      const model = await loadModel(scene, pet.modelPath, .75);
+      const model: Model = pet.modelPath ? await loadModel(scene, pet.modelPath, pet.height ?? .75)
+        : pet.imageUrl ? loadPicturePet(scene, pet.imageUrl, 1.2)
+        : (() => { throw new Error('펫 모델·그림 없음'); })();
       if (scene.isDisposed) return;
       if (!wanted.has(pet.id) || roamers.has(pet.id)) {
         model.container.dispose(); model.actor.dispose();
@@ -137,6 +142,7 @@ export function createPetYard(scene: Scene, shadows: ShadowGenerator, area: Yard
         let turn = heading - actor.rotation.y;
         turn = Math.atan2(Math.sin(turn), Math.cos(turn));
         actor.rotation.y += turn * Math.min(1, dt * 8);
+        roamer.model.face?.(dx);   // 그림 펫: 걷는 방향으로 좌우 뒤집기
         y = Math.abs(Math.sin(roamer.time * (roamer.chasing ? 14 : 10))) * .1;
       } else {
         if (roamer.chasing) {
@@ -159,16 +165,22 @@ export function createPetYard(scene: Scene, shadows: ShadowGenerator, area: Yard
     }
   });
 
+  let owned: YardPet[] = [];
+  let equipped: EquippedPet | null = null;
+  const refresh = () => {
+    const isEquipped = (pet: YardPet) => !!equipped && (equipped.id ? pet.id === equipped.id : pet.name === equipped.name);
+    const pets = owned.filter(pet => !isEquipped(pet));
+    wanted = new Set(pets.map(pet => pet.id));
+    for (const id of [...roamers.keys()]) if (!wanted.has(id)) remove(id);
+    for (const pet of pets) if (!roamers.has(pet.id) && !loading.has(pet.id)) void add(pet);
+  };
+
   return {
     // 장착한 펫은 플레이어를 따라다니므로, 나머지 보유 펫만 마당에 둡니다.
     // 장착 펫은 id가 있으면 id로, 없으면(RoomPet) 이름으로 구분합니다.
-    sync(equipped: EquippedPet | null) {
-      const isEquipped = (pet: Pet) => !!equipped && (equipped.id ? pet.id === equipped.id : pet.name === equipped.name);
-      const pets = ownedPets().filter(pet => !isEquipped(pet));
-      wanted = new Set(pets.map(pet => pet.id));
-      for (const id of [...roamers.keys()]) if (!wanted.has(id)) remove(id);
-      for (const pet of pets) if (!roamers.has(pet.id) && !loading.has(pet.id)) void add(pet);
-    },
+    sync(next: EquippedPet | null) { equipped = next; refresh(); },
+    // 보유 펫 목록이 바뀌면(뽑기·새로고침) 다시 맞춥니다.
+    setOwned(pets: YardPet[]) { owned = pets; refresh(); },
   };
 }
 

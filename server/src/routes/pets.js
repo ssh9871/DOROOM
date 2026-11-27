@@ -9,6 +9,7 @@ import { requireAuth } from '../middleware/auth.js';
 import { pool, withTransaction } from '../db/pool.js';
 import { getPetCombatStats, listPets, setRepresentative } from '../services/petService.js';
 import { getPetDetail, equipToPet, unequipFromPet, listPetGear } from '../services/petEquipmentService.js';
+import { feedPet, patPet, usePotion, evolvePet } from '../services/petCareService.js';
 // import { addCell } from '../services/cellService.js';
 // import { addItem, useItem, addEquipment, useEquipment, getInventory } from '../services/inventoryService.js';
 
@@ -52,10 +53,19 @@ router.patch('/:userPetId', wrap(async (req, res) => {
   if (typeof isRepresentative !== 'boolean') throw new AppError('VALIDATION', 'isRepresentative(true/false)가 필요합니다');
   ok(res, await withTransaction(client => setRepresentative(client, req.userId, userPetId, isRepresentative)));
 }));
-router.post('/:userPetId/feed', todo);
-router.post('/:userPetId/pat', todo);
-router.post('/:userPetId/use-potion', todo);
-router.post('/:userPetId/evolve', todo);
+// 돌보기·성장: {itemId} → {pet, used} / → Pet / {itemId} → Pet / → Pet
+router.post('/:userPetId/feed', wrap(async (req, res) => {
+  ok(res, await withTransaction(client => feedPet(client, req.userId, petIdOf(req), Number(req.body?.itemId))));
+}));
+router.post('/:userPetId/pat', wrap(async (req, res) => {
+  ok(res, await withTransaction(client => patPet(client, req.userId, petIdOf(req))));
+}));
+router.post('/:userPetId/use-potion', wrap(async (req, res) => {
+  ok(res, await withTransaction(client => usePotion(client, req.userId, petIdOf(req), Number(req.body?.itemId))));
+}));
+router.post('/:userPetId/evolve', wrap(async (req, res) => {
+  ok(res, await withTransaction(client => evolvePet(client, req.userId, petIdOf(req))));
+}));
 router.post('/transfer-exp', todo);
 // 장비 장착·해제 (창규). 칸 종류 자유, 같은 종류 중복 금지, 끼우면 가방에서 1개 빠짐 → PetDetail
 router.put('/:userPetId/equipments/:slotNo', wrap(async (req, res) => {

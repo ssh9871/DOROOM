@@ -32,7 +32,17 @@ export const buyItem = (itemId: number, quantity = 1) =>
   });
 // 뽑기
 export const getGachaPools = () => authRequest<GachaPool[]>('/gacha/pools');
-export const drawGacha = (poolId: number) =>
-  authRequest<GachaResult>(`/gacha/pools/${poolId}/draw`, { method: 'POST' });
+// forceId: 시연용 지정 뽑기 (펫 뽑기면 speciesId, 장비 뽑기면 equipmentId)
+export const drawGacha = (poolId: number, forceId?: number) =>
+  authRequest<GachaResult>(`/gacha/pools/${poolId}/draw`, {
+    method: 'POST',
+    ...(forceId ? { body: JSON.stringify({ forceId }) } : {}),
+  });
+// 시연용: 오늘 이 뽑기 횟수 +1 → 바뀐 뽑기 목록
+export const addDemoDraws = (poolId: number) =>
+  authRequest<GachaPool[]>(`/gacha/pools/${poolId}/demo-draws`, { method: 'POST' });
 export const getGachaHistory = (poolType: PoolType, limit = 30) =>
   authRequest<GachaHistoryEntry[]>(`/gacha/history?poolType=${poolType}&limit=${limit}`);
+// 시연용 셀 충전 (서버가 데모 환경일 때만 성공)
+export const addDemoCells = (amount = 100) =>
+  authRequest<{ balance: number }>('/me/demo-cells', { method: 'POST', body: JSON.stringify({ amount }) });

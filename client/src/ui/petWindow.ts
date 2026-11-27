@@ -4,6 +4,7 @@
 //            한 펫에 같은 종류는 하나만, 끼우면 가방에서 1개 빠지고 빼면 돌아온다 (서버 규칙과 같음).
 import type { Equipment, GachaPool, Grade, Pet, PetDetail, PetGear, PetSpecies } from '../../../shared/types';
 import { getGachaPools, getInventory } from '../api/shop';
+import { peekDemoPick, setDemoPick } from '../pets/demoPick';
 import { equipToPet, getMyPets, getPetDetail, getPetGear, setRepresentativePet, unequipFromPet } from '../api/pets';
 
 const gradeLabel: Record<Grade, string> = { NORMAL: '노말', RARE: '레어', LEGEND: '레전드' };
@@ -34,13 +35,17 @@ const modelCodes = new Set(['dog', 'cat', 'panda', 'gumiho']);
 const modelHeight: Record<string, number> = { gumiho: 1.1 };
 /** 마이룸이 따라다니게 할 펫 정보 (room.setPet 에 그대로 넘긴다) */
 export const roomPetOf = (pet: Pet | undefined) => pet
-  ? { name: pet.nickname ?? pet.species.name,
+  ? { id: String(pet.userPetId), name: pet.nickname ?? pet.species.name,
       modelPath: pet.species.code && modelCodes.has(pet.species.code) ? `pet/pet-${pet.species.code}.glb` : null,
       imageUrl: pet.species.imageUrl ?? null,
       height: (pet.species.code && modelHeight[pet.species.code]) || undefined }
   : null;
 
-export function createPetWindow(container: HTMLElement, onRepresentativeChange: (pet: Pet | undefined) => void) {
+/** 펫 정원 마당에서 돌아다닐 펫 정보 (등급별 구역: 레전드 성역 · 레어 별빛 정원 · 노말 그 밖) */
+export const yardPetOf = (pet: Pet) => ({ ...roomPetOf(pet)!, id: String(pet.userPetId), grade: pet.species.grade });
+
+export function createPetWindow(container: HTMLElement, onRepresentativeChange: (pet: Pet | undefined) => void,
+                                onPetsLoaded?: (pets: Pet[]) => void) {
   let tab: Tab = 'pet';
   let renderedTab: Tab | null = null;   // 마지막으로 그린 탭 (스크롤 유지용 — 컨테이너에 data-tab 을 달면 탭 버튼으로 오인됨)
   let slots: Slot[] = [];
@@ -99,12 +104,13 @@ export function createPetWindow(container: HTMLElement, onRepresentativeChange: 
 
   const petTab = () => {
     const owned = slots.filter(s => s.pet).length;
+    const demoPick = peekDemoPick('PET');
     const cards = slots.map(({ species, pet }) => `<button class="pet-card${pet ? '' : ' is-locked'}" data-species="${species.speciesId}"
         aria-pressed="${selected === species.speciesId}" aria-label="${escapeHtml(species.name)}${pet ? '' : ', 아직 없음'}">
         ${pet?.isRepresentative ? '<span class="pet-equipped-badge">장착중</span>' : ''}
         ${petImage(species)}<strong>${escapeHtml(pet?.nickname ?? species.name)}</strong></button>`).join('');
     return `<div class="pet-list" aria-label="펫 목록">
-        <p class="pet-list-count">${slots.length}마리 중 ${owned}마리를 만났어요</p>${cards}</div>
+        <p class="pet-list-count">${slots.length}마리 중 ${owned}마리를 만났어요${demoPick ? ` · 다음 뽑기: ${escapeHtml(demoPick.name)}` : ''}</p>${cards}</div>
       ${detail(slots.find(s => s.species.speciesId === selected))}`;
   };
 
@@ -265,6 +271,7 @@ export function createPetWindow(container: HTMLElement, onRepresentativeChange: 
       if (selected === null || !slots.some(s => s.species.speciesId === selected)) {
         selected = (rep ?? pets[0])?.species.speciesId ?? slots[0]?.species.speciesId ?? null;
       }
+      onPetsLoaded?.(pets);
       onRepresentativeChange(rep);
     } catch (error) {
       console.error(error);
@@ -292,7 +299,12 @@ export function createPetWindow(container: HTMLElement, onRepresentativeChange: 
     const tabBtn = target.closest<HTMLElement>('[data-tab]');
     if (tabBtn) { tab = tabBtn.dataset.tab as Tab; message = ''; render(); return; }
     const card = target.closest<HTMLElement>('[data-species]');
-    if (card) { selected = Number(card.dataset.species); message = ''; render(); return; }
+    if (card) {
+      selected = Number(card.dataset.species);
+      const slot = slots.find(s => s.species.speciesId === selected);
+      if (slot) setDemoPick('PET', slot.species.speciesId, slot.species.name);   // 시연: 다음 펫 뽑기 결과로 지정
+      message = ''; render(); return;
+    }
     const gearCard = target.closest<HTMLElement>('[data-gear]');
     if (gearCard) { gearSelected = Number(gearCard.dataset.gear); message = ''; render(); return; }
     const slotBtn = target.closest<HTMLElement>('[data-gear-slot]');

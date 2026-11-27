@@ -1,24 +1,54 @@
-import { shopItems, type PetState } from '../pets/pets';
-import { getShopItems, getInventory, getMe, buyItem, getGachaPools, drawGacha, getGachaHistory } from '../api/shop';
-import type { Item, GachaPool, GachaResult, GachaHistoryEntry, Grade } from '../../../shared/types';
+import { getShopItems, getInventory, getMe, buyItem, getGachaPools, drawGacha, getGachaHistory, addDemoDraws } from '../api/shop';
+import { peekDemoPick, setDemoPick, takeDemoPick } from '../pets/demoPick';
+import { evolvePet, feedPet, getMyPets, getPetDetail, patPet, usePetPotion } from '../api/pets';
+import type { Item, GachaPool, GachaResult, GachaHistoryEntry, Grade, Pet, PetDetail } from '../../../shared/types';
 
-// 🟩 [펫 상점] 탭은 서버 데이터 사용 (창규). 나머지 탭은 아직 브라우저 저장 데이터(PetState).
-const itemArtPath: Record<string, string> = { FOOD: '/assets/items/pet-food.svg', TOY: '/assets/items/pet-ball.svg' };
-const itemEmoji: Record<string, string> = { SNACK: '🍪', EXP_POTION: '🧪', EVOLVE_STONE: '💎', GAME_BUFF: '⚡' };
-const itemArt = (item: Item) => itemArtPath[item.itemType]
-  ? `<img src="${itemArtPath[item.itemType]}" alt="${item.name} 모양"/>`
-  : `<span aria-hidden="true" style="font-size:72px;line-height:1">${itemEmoji[item.itemType] ?? '📦'}</span>`;
-const itemDescription = (item: Item) => {
-  const effects = [
-    item.hungerRestore > 0 ? `배고픔 +${item.hungerRestore}` : '',
-    item.affectionRestore > 0 ? `호감도 +${item.affectionRestore}` : '',
-    item.expGain > 0 ? `경험치 +${item.expGain}` : '',
-  ].filter(Boolean);
-  if (effects.length) return `${effects.join(' · ')}. 1개씩 사용해요.`;
-  if (item.itemType === 'EVOLVE_STONE') return '펫을 진화시킬 때 사용해요.';
-  if (item.itemType === 'GAME_BUFF') return '미니게임을 시작할 때 사용해요.';
-  return '';
+// 🟩 상점의 모든 탭은 서버 데이터 사용: 상품·보유 개수·셀·내 펫(성장·상호작용)
+const itemArtFiles: Partial<Record<Item['itemType'], string>> = {
+  FOOD: 'pet-food.svg',
+  SNACK: 'pet-cookie.svg',
+  TOY: 'pet-ball.svg',
+  EXP_POTION: 'experience-potion.svg',
+  EVOLVE_STONE: 'evolution-stone.svg',
 };
+const itemArt = (type: Item['itemType']) => {
+  const file = itemArtFiles[type];
+  return file
+    ? `<img src="/assets/items/${file}" width="128" height="128" alt="" draggable="false"/>`
+    : '<svg viewBox="0 0 120 120" aria-hidden="true"><path d="M66 24L38 66h20l-6 30 30-44H62z" fill="#D9A441"/></svg>';
+};
+// 이전 데이터베이스의 상품명도 마이그레이션 전까지 같은 이름으로 표시한다.
+const itemName = (item: Item) => item.code === 'EXP_POTION_S' ? '경험치 포션' : item.name;
+const itemEffects = (item: Item) => [
+  item.hungerRestore > 0 ? ['배고픔', `+${item.hungerRestore.toLocaleString()}`] : null,
+  item.affectionRestore > 0 ? ['호감도', `+${item.affectionRestore.toLocaleString()}`] : null,
+  item.expGain > 0 ? ['경험치', `+${item.expGain.toLocaleString()}`] : null,
+  item.itemType === 'EVOLVE_STONE' ? ['진화 재료'] : null,
+  item.itemType === 'GAME_BUFF' ? ['미니게임 입장 효과'] : null,
+].filter(effect => effect !== null);
+
+const shopCell = '<svg class="shop-cell" viewBox="0 0 20 20" aria-hidden="true"><path d="m10 1.5 7.5 4.3v8.4L10 18.5l-7.5-4.3V5.8Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity=".18"/><path d="M10 5.5V14.5M6 7.75l8 4.5m0-4.5-8 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
+
+function renderShopItem(item: Item, quantity: number, balance: number | null, buying: number | null) {
+  const name = escapeHtml(itemName(item));
+  const price = item.priceCell.toLocaleString();
+  const pending = item.itemId === buying;
+  const insufficient = balance !== null && balance < item.priceCell;
+  const action = pending ? '구매 중…' : insufficient ? '셀 부족' : '1개 구매';
+  return `<article class="shop-item" data-item-type="${item.itemType}" aria-labelledby="shop-item-${item.itemId}">
+    <div class="shop-item-art">${itemArt(item.itemType)}</div>
+    <div class="shop-item-info">
+      <h3 id="shop-item-${item.itemId}">${name}</h3>
+      <ul class="shop-item-effects" aria-label="효과">${itemEffects(item).map(([label, value]) =>
+        `<li>${label}${value ? ` <b>${value}</b>` : ''}</li>`).join('')}</ul>
+      <p class="shop-item-owned">보유 <b>${quantity.toLocaleString()}개</b></p>
+    </div>
+    <button class="shop-buy" id="buy-${item.itemId}" data-buy="${item.itemId}"
+      aria-label="${name}, ${price}셀 · ${action}" ${buying !== null || insufficient ? 'aria-disabled="true"' : ''}>
+      <span class="shop-buy-price">${shopCell}${price}</span><span>${action}</span>
+    </button>
+  </article>`;
+}
 
 // 🟩 [펫 뽑기] 탭 (창규): 왼쪽 뽑기, 오른쪽 등급별 도감 (가진 펫은 컬러, 없으면 흐리게)
 const gradeInfo: Record<Grade, { label: string; className: string }> = {
@@ -112,8 +142,9 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
     .map(e => entryOf(e, equipQty)).filter((e): e is DexEntry => !!e);
   const left = pool.dailyLimit === null ? null : Math.max(0, pool.dailyLimit - pool.drawnToday);
   const lackCell = balance !== null && balance < pool.costCell;
-  const disabled = drawing || lackCell || left === 0;
-  const reason = left === 0 ? '오늘은 더 뽑을 수 없어요. 내일 다시 와주세요.' : lackCell ? '셀이 모자라요. 미니게임에서 모아오세요.' : '';
+  const pick = peekDemoPick(kind);   // 시연: 도감에서 고른 펫·장비 (다음 뽑기 1회 확정, 하루 횟수 제한 없음)
+  const disabled = drawing || lackCell || (left === 0 && !pick);
+  const reason = lackCell ? '셀이 모자라요. 미니게임에서 모아오세요.' : left === 0 && !pick ? '오늘은 더 뽑을 수 없어요. 내일 다시 와주세요.' : '';
   const got = resultOf(last);
   const box = pet ? eggSvg : anvilSvg;   // 모루에는 물음표 없음
   const shown = (e: DexEntry) => e.imageUrl ? `<img class="stage-pet${pet ? '' : ' stage-equip'}" src="${e.imageUrl}" alt=""/>` : '';
@@ -141,7 +172,7 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
       </div>`
     : `<div class="gacha-window is-empty">
         ${stage(box(pet ? '?' : ''), ' is-idle')}
-        <p class="gacha-note">${pet ? '어떤 펫이 나올까요' : '어떤 장비가 만들어질까요'}</p>
+        <p class="gacha-note">${pick ? `다음 뽑기: ${escapeHtml(pick.name)}` : pet ? '어떤 펫이 나올까요' : '어떤 장비가 만들어질까요'}</p>
       </div>`;
   const historyList = history === null ? '' : `<section class="gacha-history" aria-label="최근 ${word} 뽑기 기록">
       ${history.length ? `<ol>${history.map(h => {
@@ -155,7 +186,7 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
       ${window_}
       <dl class="gacha-facts">
         <div><dt>한 번에</dt><dd><span class="cell-icon" aria-hidden="true">⬡</span> ${pool.costCell.toLocaleString()}</dd></div>
-        ${left === null ? '' : `<div><dt>오늘 남은 횟수</dt><dd>${left}번</dd></div>`}
+        ${left === null ? '' : `<div><dt>오늘 남은 횟수</dt><dd>${left}번 <button class="demo-draws-button" data-demo-draws="${pool.poolId}" title="시연용: 오늘 뽑기 횟수 +1" aria-label="오늘 뽑기 횟수 1번 늘리기" ${drawing ? 'disabled' : ''}>+1</button></dd></div>`}
       </dl>
       <button id="gacha-draw" data-draw="${pool.poolId}" ${disabled ? 'disabled' : ''}>${drawing ? '뽑는 중' : `${word} 뽑기`}</button>
       ${reason ? `<p class="gacha-reason">${reason}</p>` : ''}
@@ -170,7 +201,7 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
     const sub = rate !== undefined ? `<small>${rate}% 확률</small>` : '';
     return `<section class="dex-group ${gradeInfo[grade].className}" aria-label="${gradeInfo[grade].label}">
         <h4><span>${gradeInfo[grade].label}</span>${sub}<em>${have}/${rows.length}</em></h4>
-        <ul class="dex-slots">${rows.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.key === newKey ? ' is-new' : ''}${pet ? '' : ' is-equip'}">
+        <ul class="dex-slots">${rows.map(e => `<li class="dex-slot${e.owned ? ' owned' : ''}${e.key === newKey ? ' is-new' : ''}${pet ? '' : ' is-equip'} is-pickable${pick && e.key === `${pet ? 'p' : 'e'}${pick.id}` ? ' is-picked' : ''}" data-pick="${e.key.slice(1)}" data-pick-name="${escapeHtml(e.name)}" role="button" tabindex="0" aria-label="${escapeHtml(e.name)}, 다음 뽑기로 지정">
             ${e.key === newKey ? '<b class="dex-new">NEW</b>' : ''}${e.qty ? `<b class="dex-qty">×${e.qty}</b>` : ''}${petImage(e.imageUrl, e.name)}<span>${escapeHtml(e.name)}${e.owned ? '' : '<span class="visually-hidden">, 아직 없음</span>'}</span></li>`).join('')}</ul>
       </section>`;
   };
@@ -186,14 +217,24 @@ function renderGacha(kind: GachaKind, pool: GachaPool | undefined, balance: numb
   return `${switcher}<div class="gacha">${draw}${dex}</div>`;
 }
 
-const tabs = ['뽑기', '펫 스킨', '펫 상점', '펫 성장', '상호작용'];
+const tabs = [
+  { label: '뽑기', icon: '<path d="M18 14a6 6 0 1 1-12 0c0-4 3-9 6-9s6 5 6 9Z"/><path d="m6.5 13 3-2 2.5 3 2.5-3 3 2"/>' },
+  { label: '펫 스킨', icon: '<path d="m9 5-5 2-2 4 4 2 1-2v8h10v-8l1 2 4-2-2-4-5-2a3 3 0 0 1-6 0Z"/>' },
+  { label: '펫 상점', icon: '<path d="M5 11v8h14v-8M9 19v-5h6v5M3 10l2-5h14l2 5c0 2-3 3-4.5.5-1.5 2-3 2-4.5 0-1.5 2-3 2-4.5 0C6 13 3 12 3 10Z"/>' },
+  { label: '펫 성장', icon: '<path d="M12 20v-7m0 3C6 16 4 13 4 9c5 0 8 3 8 7Zm0-3c0-5 3-8 8-8 0 5-3 8-8 8ZM8 20h8"/>' },
+  { label: '상호작용', icon: '<path d="M20 8.5c0 4-8 9.5-8 9.5S4 12.5 4 8.5a4 4 0 0 1 8-1 4 4 0 0 1 8 1Z"/>' },
+];
 
-export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onChange: () => void) {
+export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) {
   const tabList = dialog.querySelector<HTMLElement>('#shop-tabs')!;
   const panel = dialog.querySelector<HTMLElement>('#shop-panel')!;
   const result = dialog.querySelector<HTMLElement>('#shop-result')!;
   let activeTab = 2;
-  let selectedPetId = state.pet.id;
+  let myPets: Pet[] = [];                  // 내 펫 (성장·상호작용 탭)
+  let careId: number | null = null;        // 고른 펫 userPetId
+  let careDetail: PetDetail | null = null; // 고른 펫의 다음 진화 조건
+  let busy = false;
+  let buying: number | null = null;
   // 서버에서 불러온 값
   let serverItems: Item[] = [];
   let owned: Record<number, number> = {};
@@ -208,44 +249,125 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   let phase: DrawPhase = 'idle';
   let newKey: string | null = null;    // 방금 처음 얻은 펫·장비 → 도감 칸에 NEW
   let skipReveal: (() => void) | null = null;
-  tabList.innerHTML = tabs.map((label, index) => `<button role="tab" id="shop-tab-${index}" aria-controls="shop-panel" data-tab="${index}">${label}</button>`).join('');
+  tabList.innerHTML = tabs.map(({ label, icon }, index) => `<button role="tab" id="shop-tab-${index}" aria-controls="shop-panel" data-tab="${index}"><svg viewBox="0 0 24 24" aria-hidden="true">${icon}</svg>${label}</button>`).join('');
   const refresh = () => {
-    const pet = state.pet;
-    const user = state.user;
     const cellText = balance === null ? '…' : balance.toLocaleString();
-    dialog.querySelector('#shop-wallet')!.innerHTML = `<span class="cell-icon" aria-hidden="true">⬡</span> ${cellText}`;
-    dialog.querySelector('#shop-wallet')!.setAttribute('aria-label', `보유 ${cellText} 셀`);
-    dialog.querySelector('#shop-save-notice')!.textContent = !state.persistent ? '저장할 수 없어요. 새로고침하면 변경 사항이 사라질 수 있어요.' : state.recovered ? '저장 데이터의 잘못된 값을 기본값으로 복구했어요.' : '';
+    dialog.querySelector('#shop-wallet')!.innerHTML = `${shopCell}<span>보유 셀</span><strong>${cellText}</strong>`;
     tabList.querySelectorAll<HTMLButtonElement>('[role="tab"]').forEach((tab, index) => {
       tab.setAttribute('aria-selected', String(index === activeTab));
       tab.tabIndex = index === activeTab ? 0 : -1;
     });
     panel.setAttribute('aria-labelledby', `shop-tab-${activeTab}`);
-    const preview = `<img class="shop-pet-preview" src="${pet.previewPath}" alt="${pet.name}"/>`;
-    const progress = `<p class="shop-level">Lv. ${pet.level} · ${pet.name}</p><label for="pet-experience">경험치 ${pet.experience} / ${state.requiredExperience}</label><progress id="pet-experience" value="${pet.experience}" max="${state.requiredExperience}"></progress>`;
-    const selector = `<aside class="shop-pet-list"><button class="pet-card" id="select-shop-pet" data-pet="${pet.id}" aria-pressed="${selectedPetId === pet.id}"><img src="${pet.previewPath}" alt=""/><strong>${pet.name}</strong><span>Lv. ${pet.level}</span></button><small>장착하지 않아도 돌볼 수 있어요.</small></aside>`;
     if (activeTab === 0) {
       panel.innerHTML = loadError ? `<p>${loadError}</p><button id="shop-reload" data-reload>다시 불러오기</button>`
         : loading ? `<p>도감을 불러오고 있어요.</p>` : renderGacha(gachaKind, pools.find(p => p.poolType === gachaKind), balance, lastDraw, phase, newKey, equipQty, history);
     } else if (activeTab === 1) {
-      panel.innerHTML = `<div class="shop-coming">${preview}<h3>${tabs[activeTab]}</h3><p>새로운 만남을 준비하고 있어요.</p><button disabled>스킨 적용 준비 중</button></div>`;
+      const rep = myPets.find(p => p.isRepresentative) ?? myPets[0];
+      panel.innerHTML = `<div class="shop-coming">${rep ? `<div class="care-portrait">${petPic(rep)}</div>` : ''}<p class="care-eyebrow">준비 중</p><h3>펫 스킨</h3><p>펫에게 어울리는 옷과 색을 준비하고 있어요.</p></div>`;
     } else if (activeTab === 2) {
-      const intro = `<div class="shop-intro"><h3>작은 선물, 더 가까운 사이</h3><p>사료와 장난감으로 펫을 돌봐주세요.</p></div>`;
-      if (loadError) {
-        panel.innerHTML = `${intro}<p>${loadError}</p><button id="shop-reload" data-reload>다시 불러오기</button>`;
-      } else if (loading) {
-        panel.innerHTML = `${intro}<p>상품을 불러오고 있어요.</p>`;
-      } else {
-        panel.innerHTML = `${intro}<div class="shop-items">${serverItems.map(item => `<article class="shop-item"><div class="shop-item-art">${itemArt(item)}</div><h3>${item.name}</h3><p>${itemDescription(item)}</p><span>보유 ${owned[item.itemId] ?? 0}개</span><strong aria-label="${item.priceCell} 셀"><span class="cell-icon" aria-hidden="true">⬡</span> ${item.priceCell.toLocaleString()}</strong><button id="buy-${item.itemId}" data-buy="${item.itemId}" ${balance !== null && balance < item.priceCell ? 'disabled' : ''}>1개 구매</button></article>`).join('')}</div>`;
-      }
+      const intro = `<div class="shop-intro">
+        <div><h3>돌봄 용품</h3><p>먹이와 장난감은 상호작용에서, 포션은 펫 성장에서 사용해요.</p></div>
+        <img src="/assets/pets/pet-dog.png" alt="" draggable="false"/>
+      </div>`;
+      const items = serverItems.map(item => renderShopItem(item, owned[item.itemId] ?? 0, balance, buying)).join('');
+      const content = loading ? '<p role="status">상품을 불러오고 있어요.</p>'
+        : loadError ? `<p>${escapeHtml(loadError)}</p><button data-reload>다시 불러오기</button>`
+        : !items ? '<p>지금 판매 중인 상품이 없어요.</p>' : '';
+      panel.innerHTML = intro + (content ? `<div class="shop-empty">${content}</div>` : `<div class="shop-items">${items}</div>`);
     } else {
-      panel.innerHTML = `<div class="shop-care">${selector}<section class="shop-care-detail">${preview}${progress}${activeTab === 3 ? `<p>다음 레벨 성장 비용 <strong aria-label="${state.growthCost} 셀"><span class="cell-icon" aria-hidden="true">⬡</span> ${state.growthCost.toLocaleString()}</strong></p><button id="grow-pet" data-grow ${state.canGrow ? '' : 'disabled'}>한 단계 성장</button><small>${state.pet.experience < state.requiredExperience ? '경험치가 가득 차야 성장할 수 있어요.' : state.user.cells < state.growthCost ? '성장에 필요한 셀이 부족해요.' : '성장하면 경험치가 0으로 초기화돼요.'}</small><small>미니게임에서 적을 정화하고 귀환하거나 클리어하면 경험치를 받아요.</small>` : `<dl class="shop-stats"><div><dt>배고픔</dt><dd>${pet.hunger}/100</dd></div><div><dt>호감도</dt><dd>${pet.affection}/100</dd></div></dl><small>배고픔 수치가 높을수록 배가 부른 상태예요.</small><div class="shop-actions">${shopItems.map(item => `<button id="use-${item.id}" data-use="${item.id}" ${!user.items[item.id] || (item.type === 'food' ? pet.hunger : pet.affection) >= 100 ? 'disabled' : ''}>${item.type === 'food' ? '밥주기' : '놀아주기'}<small>${item.name} ${user.items[item.id]}개 · 1개 소모</small></button>`).join('')}</div><small>수치가 가득 차면 아이템을 소모하지 않아요.</small>`}</section></div>`;
+      panel.innerHTML = loadError ? `<p>${loadError}</p><button id="shop-reload" data-reload>다시 불러오기</button>`
+        : loading ? '<p>펫을 불러오고 있어요.</p>' : careView(activeTab === 3 ? 'grow' : 'play');
     }
+  };
+  // ── 성장·상호작용 탭: 내 보유 펫 (서버) ─────────────────────
+  const petPic = (pet: Pet) => pet.species.imageUrl
+    ? `<img src="${pet.species.imageUrl}" alt=""/>` : `<span class="dex-noimg" aria-hidden="true">${escapeHtml(pet.species.name.slice(0, 1))}</span>`;
+  const petName = (pet: Pet) => escapeHtml(pet.nickname ?? pet.species.name);
+  const meter = (label: string, value: number, max: number, tone: string) => `<div class="care-meter ${tone}">
+      <div class="care-meter-head"><span>${label}</span><b>${value.toLocaleString()} / ${max.toLocaleString()}</b></div>
+      <div class="care-meter-bar" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${value}"><i style="width:${max ? Math.min(100, value / max * 100) : 100}%"></i></div></div>`;
+  const itemsOf = (types: string[]) => serverItems.filter(item => types.includes(item.itemType));
+  const careView = (mode: 'grow' | 'play') => {
+    if (!myPets.length) return `<div class="shop-coming"><p class="care-eyebrow">내 펫</p><h3>아직 함께하는 펫이 없어요</h3><p>뽑기에서 첫 펫을 만나보세요.</p><button data-goto="0">뽑기로 가기</button></div>`;
+    const pet = myPets.find(p => p.userPetId === careId) ?? myPets[0]!;
+    const list = `<aside class="care-pets" aria-label="내 펫">${myPets.map(p => `<button class="care-pet ${gradeInfo[p.species.grade].className}" data-care-pet="${p.userPetId}" aria-pressed="${p.userPetId === pet.userPetId}">
+        ${petPic(p)}<span><strong>${petName(p)}</strong><small>Lv. ${p.level}${p.isRepresentative ? ' · 장착중' : ''}</small></span></button>`).join('')}</aside>`;
+    const head = `<header class="care-head"><div class="care-portrait">${petPic(pet)}</div><div>
+        <p class="care-eyebrow ${gradeInfo[pet.species.grade].className}">${gradeInfo[pet.species.grade].label} · ${pet.evolutionStage}단계</p>
+        <h3>${petName(pet)}</h3><p class="care-sub">Lv. ${pet.level}${pet.expToNext === 0 ? ' · 최대 레벨' : ''}</p></div></header>`;
+    let body: string;
+    if (mode === 'grow') {
+      const potion = itemsOf(['EXP_POTION'])[0];
+      const potionQty = potion ? owned[potion.itemId] ?? 0 : 0;
+      const evo = careDetail?.userPetId === pet.userPetId ? careDetail.nextEvolution : undefined;
+      const evoReady = !!evo && pet.level >= evo.requiredLevel && (balance ?? 0) >= evo.cellCost;
+      const evoNote = evo === undefined ? '진화 조건을 불러오고 있어요.' : evo === null ? '마지막 단계까지 진화했어요.'
+        : pet.level < evo.requiredLevel ? `Lv. ${evo.requiredLevel}부터 진화할 수 있어요.` : (balance ?? 0) < evo.cellCost ? '진화에 필요한 셀이 부족해요.' : `${pet.evolutionStage + 1}단계로 진화할 수 있어요.`;
+      body = `${pet.expToNext === 0 ? meter('경험치', 1, 1, 'tone-exp') : meter('경험치', pet.exp, pet.expToNext, 'tone-exp')}
+        <div class="care-actions">
+          <article class="care-action"><div class="care-action-icon">${itemArt('EXP_POTION')}</div><div><h4>${potion ? escapeHtml(itemName(potion)) : '경험치 포션'}</h4>
+            <p>${potion ? `경험치 +${potion.expGain} · 보유 ${potionQty}개` : '지금은 살 수 없어요'}</p></div>
+            <button data-potion="${potion?.itemId ?? ''}" ${busy || !potion || !potionQty || pet.expToNext === 0 ? 'disabled' : ''}>사용</button></article>
+          <article class="care-action"><div class="care-action-icon">${itemArt('EVOLVE_STONE')}</div><div><h4>${evo ? `${pet.evolutionStage + 1}단계 진화` : '진화'}</h4>
+            <p>${evo ? `Lv. ${evo.requiredLevel} 이상 · <span class="cell-icon" aria-hidden="true">⬡</span> ${evo.cellCost.toLocaleString()}` : evoNote}</p></div>
+            <button data-evolve ${busy || !evoReady ? 'disabled' : ''}>진화하기</button></article>
+        </div>
+        <p class="care-note">${evo ? `${evoNote} ` : ''}미니게임에서 적을 정화하고 귀환하거나 클리어해도 경험치를 받아요.</p>`;
+    } else {
+      const treats = itemsOf(['FOOD', 'SNACK', 'TOY']);
+      body = `${meter('배고픔', pet.hunger, 100, 'tone-hunger')}${meter('호감도', pet.affection, 100, 'tone-affection')}
+        <div class="care-actions">
+          ${treats.map(item => {
+            const qty = owned[item.itemId] ?? 0;
+            const full = (item.hungerRestore <= 0 || pet.hunger >= 100) && (item.affectionRestore <= 0 || pet.affection >= 100);
+            const effect = [item.hungerRestore > 0 ? `배고픔 +${item.hungerRestore}` : '', item.affectionRestore > 0 ? `호감도 +${item.affectionRestore}` : ''].filter(Boolean).join(' · ');
+            return `<article class="care-action"><div class="care-action-icon">${itemArt(item.itemType)}</div><div><h4>${escapeHtml(item.name)}</h4><p>${effect} · 보유 ${qty}개</p></div>
+              <button data-feed="${item.itemId}" ${busy || !qty || full ? 'disabled' : ''}>${item.itemType === 'TOY' ? '놀아주기' : '주기'}</button></article>`;
+          }).join('')}
+          <article class="care-action"><div class="care-action-icon"><svg viewBox="0 0 120 120" aria-hidden="true"><path d="M60 92C34 74 26 60 26 48a16 16 0 0 1 34-6 16 16 0 0 1 34 6c0 12-8 26-34 44z" fill="#E59A8C"/></svg></div>
+            <div><h4>쓰다듬기</h4><p>호감도 +5 · 아이템 없이</p></div><button data-pat ${busy || pet.affection >= 100 ? 'disabled' : ''}>쓰다듬기</button></article>
+        </div>
+        <p class="care-note">배고픔 수치가 높을수록 배가 부른 상태예요. 아이템은 펫 상점 탭에서 살 수 있어요.</p>`;
+    }
+    return `<div class="care">${list}<section class="care-detail">${head}${body}</section></div>`;
+  };
+  const loadCareDetail = async () => {
+    const id = careId;
+    if (id === null || careDetail?.userPetId === id) return;
+    try {
+      const detail = await getPetDetail(id);
+      if (careId === id) {
+        careDetail = detail;
+        if (activeTab === 3) refresh();
+      }
+    } catch { /* 진화 조건만 못 불러옴 */ }
+  };
+  const selectCare = (id: number) => { careId = id; careDetail = null; result.textContent = ''; refresh(); void loadCareDetail(); };
+  const careAct = async (run: () => Promise<{ pet: Pet; message: string }>, focusSelector: string) => {
+    if (busy || buying !== null || careId === null) return;
+    busy = true; refresh();
+    try {
+      const { pet, message } = await run();
+      myPets = myPets.map(p => p.userPetId === pet.userPetId ? pet : p);
+      const [inventory, me] = await Promise.all([getInventory(), getMe()]);
+      owned = Object.fromEntries(inventory.items.map(entry => [entry.item.itemId, entry.quantity]));
+      balance = me.cellBalance;
+      careDetail = null; void loadCareDetail();
+      result.textContent = message;
+      onChange();
+    } catch (error) {
+      result.textContent = error instanceof Error ? error.message : '처리하지 못했어요.';
+    }
+    busy = false; refresh();
+    panel.querySelector<HTMLButtonElement>(focusSelector)?.focus();
   };
   // 서버에서 상품·보유 개수·셀 잔액을 한 번에 불러오기
   const loadServer = async () => {
     try {
-      const [items, inventory, me, gachaPools] = await Promise.all([getShopItems(), getInventory(), getMe(), getGachaPools()]);
+      const [items, inventory, me, gachaPools, pets] = await Promise.all([getShopItems(), getInventory(), getMe(), getGachaPools(), getMyPets()]);
+      myPets = pets;
+      if (careId === null || !pets.some(p => p.userPetId === careId)) careId = (pets.find(p => p.isRepresentative) ?? pets[0])?.userPetId ?? null;
+      careDetail = null;
       serverItems = items;
       pools = gachaPools;
       equipQty = Object.fromEntries(inventory.equipments.map(entry => [entry.equipment.equipmentId, entry.quantity]));
@@ -257,22 +379,34 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     }
     loading = false;
     refresh();
+    void loadCareDetail();
   };
   // 구매: 서버가 셀 차감·아이템 지급을 처리하고, 바뀐 잔액·보유 개수를 돌려줌
   const purchase = async (button: HTMLButtonElement) => {
+    if (buying !== null || busy || phase === 'charging' || phase === 'reveal') return;
     const itemId = Number(button.dataset.buy);
-    button.disabled = true;
+    buying = itemId;
+    result.textContent = '';
+    refresh();
+    panel.querySelector<HTMLButtonElement>(`#buy-${itemId}`)?.focus({ preventScroll: true });
     try {
       const bought = await buyItem(itemId, 1);
       balance = bought.balance;
       owned[itemId] = bought.item.quantity;
-      result.textContent = `${bought.item.item.name} 1개를 구매했어요.`;
+      result.textContent = `${itemName(bought.item.item)} 1개를 구매했어요. · ${bought.item.quantity.toLocaleString()}개 보유`;
+      result.dataset.state = 'success';
+      onChange();
     } catch (error) {
       result.textContent = error instanceof Error ? error.message : '구매하지 못했어요.';
+      result.dataset.state = 'error';
+    } finally {
+      const focusedId = panel.contains(document.activeElement) ? document.activeElement?.id : '';
+      buying = null;
+      refresh();
+      if (dialog.open && activeTab === 2 && focusedId?.startsWith('buy-')) {
+        panel.querySelector<HTMLButtonElement>(`#${focusedId}`)?.focus({ preventScroll: true });
+      }
     }
-    refresh();
-    onChange();
-    panel.querySelector<HTMLButtonElement>(`#buy-${itemId}`)?.focus();
   };
   // 뽑기: 서버가 셀 차감·펫 지급(또는 중복 환급)을 처리. 결과가 오면 연출을 보여주고, 끝나면 도감·남은 횟수를 다시 그림
   const wait = (ms: number) => new Promise<void>(resolve => {
@@ -288,14 +422,16 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     panel.querySelector<HTMLButtonElement>('#gacha-history')?.focus();
   };
   const draw = async (poolId: number) => {
-    if (phase === 'charging' || phase === 'reveal') return;
+    if (buying !== null || busy || phase === 'charging' || phase === 'reveal') return;
     const quick = reducedMotion();
     phase = 'charging'; newKey = null; history = null; result.textContent = '';
     refresh();
     const started = Date.now();
     let nextPools: GachaPool[] | undefined;
     try {
-      lastDraw = await drawGacha(poolId);
+      const poolType = pools.find(p => p.poolId === poolId)?.poolType;
+      const forced = poolType ? takeDemoPick(poolType) : null;
+      lastDraw = await drawGacha(poolId, forced?.id);
       nextPools = await getGachaPools();
       if (!quick) {
         await new Promise(r => setTimeout(r, Math.max(0, MIN_CHARGE_MS - (Date.now() - started))));
@@ -321,7 +457,7 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
     onChange();
     panel.querySelector<HTMLButtonElement>('#gacha-draw')?.focus();
   };
-  const selectTab = (index: number) => { activeTab = index; result.textContent = ''; if (phase === 'done') { phase = 'idle'; newKey = null; } refresh(); panel.scrollTop = 0; };
+  const selectTab = (index: number) => { activeTab = index; result.textContent = ''; delete result.dataset.state; if (phase === 'done') { phase = 'idle'; newKey = null; } refresh(); panel.scrollTop = 0; };
   tabList.addEventListener('click', event => {
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('[data-tab]');
     if (button) selectTab(Number(button.dataset.tab));
@@ -334,33 +470,64 @@ export function connectPetShop(dialog: HTMLDialogElement, state: PetState, onCha
   });
   panel.addEventListener('click', event => {
     if (skipReveal && (event.target as HTMLElement).closest('[data-skip]')) { skipReveal(); return; }   // 연출 건너뛰기
+    const pickSlot = (event.target as HTMLElement).closest<HTMLElement>('[data-pick]');
+    if (pickSlot) { pickDex(pickSlot); return; }
     const button = (event.target as HTMLElement).closest<HTMLButtonElement>('button');
-    if (!button || button.disabled) return;
-    let message: string | undefined;
-    if (button.dataset.pet === state.pet.id) selectedPetId = button.dataset.pet;
-    else if (button.dataset.buy) { void purchase(button); return; }
+    if (!button || button.disabled || button.getAttribute('aria-disabled') === 'true') return;
+    if (button.dataset.carePet) { selectCare(Number(button.dataset.carePet)); panel.querySelector<HTMLButtonElement>(`[data-care-pet="${button.dataset.carePet}"]`)?.focus(); return; }
+    if (button.dataset.goto) { selectTab(Number(button.dataset.goto)); return; }
+    const named = (pet: Pet) => pet.nickname ?? pet.species.name;
+    if (button.dataset.feed) {
+      const itemId = Number(button.dataset.feed);
+      void careAct(async () => { const r = await feedPet(careId!, itemId); return { pet: r.pet, message: `${named(r.pet)}에게 ${r.used.name}을(를) 줬어요.` }; }, `[data-feed="${itemId}"]`); return;
+    }
+    if (button.hasAttribute('data-pat')) { void careAct(async () => { const pet = await patPet(careId!); return { pet, message: `${named(pet)}을(를) 쓰다듬었어요.` }; }, '[data-pat]'); return; }
+    if (button.dataset.potion) {
+      const itemId = Number(button.dataset.potion);
+      void careAct(async () => { const pet = await usePetPotion(careId!, itemId); return { pet, message: `경험치 포션을 썼어요. 지금 Lv. ${pet.level}이에요.` }; }, '[data-potion]'); return;
+    }
+    if (button.hasAttribute('data-evolve')) { void careAct(async () => { const pet = await evolvePet(careId!); return { pet, message: `${named(pet)}이(가) ${pet.evolutionStage}단계로 진화했어요!` }; }, '[data-evolve]'); return; }
+    if (button.dataset.buy) { void purchase(button); return; }
     else if (button.dataset.draw) { void draw(Number(button.dataset.draw)); return; }
+    else if (button.dataset.demoDraws) { void moreDraws(Number(button.dataset.demoDraws)); return; }
     if (button.dataset.kind && phase !== 'charging' && phase !== 'reveal') {          // [펫 뽑기 | 장비 뽑기] 전환
       gachaKind = button.dataset.kind as GachaKind; phase = 'idle'; lastDraw = null; newKey = null; history = null; result.textContent = '';
       refresh(); panel.querySelector<HTMLButtonElement>(`[data-kind="${gachaKind}"]`)?.focus(); return;
     }
     if (button.hasAttribute('data-history')) { void toggleHistory(); return; }
-    else if (button.hasAttribute('data-reload')) { loading = true; refresh(); void loadServer(); return; }
-    else if (button.dataset.use) message = state.interact(selectedPetId, button.dataset.use);
-    else if (button.hasAttribute('data-grow')) message = state.grow(selectedPetId);
-    if (message) {
-      refresh();
-      onChange();
-      const next = panel.querySelector<HTMLButtonElement>(`#${button.id}`);
-      if (next && !next.disabled) next.focus();
-      else panel.focus();
-      result.textContent = message;
-    }
+    else if (button.hasAttribute('data-reload')) { loading = true; loadError = ''; refresh(); panel.focus(); void loadServer(); return; }
+  });
+  // 시연: 오늘 뽑기 횟수 +1
+  const moreDraws = async (poolId: number) => {
+    try { pools = await addDemoDraws(poolId); result.textContent = '오늘 뽑기 횟수를 1번 늘렸어요.'; }
+    catch (error) { result.textContent = error instanceof Error ? error.message : '뽑기 횟수를 늘리지 못했어요.'; return; }
+    refresh();
+    panel.querySelector<HTMLButtonElement>(`[data-demo-draws="${poolId}"]`)?.focus();
+  };
+  // 시연: 도감 칸을 누르면 그 펫·장비를 다음 뽑기 결과로 지정 (같은 칸을 다시 누르면 해제)
+  const pickDex = (slot: HTMLElement) => {
+    if (phase === 'charging' || phase === 'reveal') return;
+    const pickId = Number(slot.dataset.pick);
+    if (peekDemoPick(gachaKind)?.id === pickId) takeDemoPick(gachaKind);
+    else setDemoPick(gachaKind, pickId, slot.dataset.pickName ?? '');
+    const picked = peekDemoPick(gachaKind);
+    result.textContent = picked ? `다음 뽑기에서 ${picked.name}이(가) 나와요.` : '지정을 해제했어요.';
+    refresh();
+    panel.querySelector<HTMLElement>(`[data-pick="${pickId}"]`)?.focus();
+  };
+  panel.addEventListener('keydown', event => {
+    const slot = (event.target as HTMLElement).closest<HTMLElement>('[data-pick]');
+    if (slot && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pickDex(slot); }
   });
   // 상점을 닫았다 다시 열면 뽑기 칸은 다시 알로 (연출 중이면 그대로 둠)
   dialog.addEventListener('close', () => {
     if (phase === 'charging' || phase === 'reveal') return;
     phase = 'idle'; lastDraw = null; newKey = null; history = null;
   });
-  return () => { selectTab(2); dialog.showModal(); void loadServer(); };
+  return () => {
+    if (buying === null) { loading = true; loadError = ''; }
+    selectTab(2);
+    dialog.showModal();
+    if (buying === null) void loadServer();
+  };
 }

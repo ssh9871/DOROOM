@@ -1058,6 +1058,37 @@ h2 {
   height:15px
 }
 
+/* 시연용 셀 충전 버튼 (인원 표시 아래) */
+.demo-cell-button {
+  position:absolute;
+  top:54px;
+  right:22px;
+  z-index:2;
+  background:#0756b7;
+  border:1px solid #367bc6;
+  color:#d4eaff;
+  padding:6px 10px;
+  border-radius:20px;
+  display:flex;
+  align-items:center;
+  gap:6px;
+  font-size:11px;
+  cursor:pointer
+}
+
+.demo-cell-button b {
+  color:#ffe27a
+}
+
+.demo-cell-button:hover:not(:disabled) {
+  background:#0a68d8
+}
+
+.demo-cell-button:disabled {
+  opacity:.6;
+  cursor:wait
+}
+
 .room-name-tag {
   position:absolute;
   pointer-events:none;
@@ -1605,31 +1636,12 @@ kbd {
   }
 }
 
-/* Pet shop shares the existing room dialog and card styles. */
-.pet-shop-dialog { width:min(920px,calc(100% - 40px)); max-height:calc(100dvh - 40px); overflow:hidden }
+/* Pet shop shares the room dialog and care controls. */
 .pet-shop-dialog[open] { display:flex; flex-direction:column }
 .pet-shop-dialog .pet-dialog-header,#shop-tabs,.shop-footer { flex-shrink:0 }
-#shop-wallet { margin-left:auto; margin-right:20px; color:#ffdf96; font-weight:700; white-space:nowrap }
-#shop-tabs { display:flex; gap:6px; padding:12px 20px; border-bottom:1px solid #343a3c; overflow-x:auto }
-#shop-tabs button { flex:1 0 auto; border:0; border-radius:9px; padding:12px 16px; color:#a9b7bd; background:transparent; font-weight:700 }
-#shop-tabs button[aria-selected=true] { color:#d8f7ed; background:#27443e }
-#shop-panel { padding:24px; min-height:0; height:490px; overflow-y:auto; flex:1 1 auto }
-.pet-shop-dialog button:focus-visible { outline:2px solid #88dccc; outline-offset:3px }
-#shop-panel button:not(.pet-card) { border:0; border-radius:10px; background:#327e70; color:white; padding:13px 20px; font-weight:700 }
-#shop-panel button:disabled { opacity:.4; cursor:not-allowed }
-.shop-intro h3 { margin:0 0 8px; font-size:21px }
-.shop-intro p,.shop-item p,.shop-coming p { color:#a6b4b5; font-size:13px; line-height:1.6 }
-.shop-items { display:grid; grid-template-columns:1fr 1fr; gap:20px; margin-top:20px }
-.shop-item { display:flex; flex-direction:column; gap:12px; padding:18px; border:1px solid #3c4948; border-radius:16px; background:#202a29 }
-.shop-item-art { display:grid; place-items:center; min-height:160px; background:radial-gradient(ellipse,#405d51,transparent 72%); border-radius:12px }
-.shop-item img { width:150px; height:150px }
-.shop-item h3,.shop-item p { margin:0 }
-.shop-item span { color:#a6b4b5; font-size:13px }
-.shop-item strong { color:#ffe0a0 }
-.shop-item button { margin-top:auto }
-.shop-footer { padding:0 24px 18px; font-size:13px; line-height:1.6 }
-#shop-result { color:#a7e8d5; min-height:22px }
-#shop-save-notice { color:#ffce9d }
+#shop-panel { min-height:0; overflow-y:auto; overscroll-behavior:contain; flex:1 1 auto }
+#shop-panel button:not(.pet-card) { border:0; padding:13px 20px; font-weight:700 }
+#shop-panel button:disabled { cursor:not-allowed }
 .shop-coming { display:flex; flex-direction:column; align-items:center; justify-content:center; gap:16px; min-height:360px; text-align:center }
 .shop-egg { width:110px; height:140px; display:grid; place-items:center; border-radius:50% 50% 44% 44%; background:linear-gradient(145deg,#ffdfa1,#b1906b); color:#6c5434; font-size:60px; box-shadow:0 15px 40px #0004 }
 .shop-pet-preview { display:block; width:190px; height:155px; object-fit:contain; margin:auto }
@@ -1649,18 +1661,10 @@ kbd {
 #shop-hint[hidden] { display:none }
 #pet-progress { margin-bottom:16px; color:#b7d9cf; font-size:13px }
 @media(max-width:640px) {
- .pet-shop-dialog { width:calc(100% - 16px); max-height:calc(100dvh - 16px) }
- .pet-shop-dialog .pet-dialog-header { gap:8px }
- .pet-shop-dialog .pet-dialog-header h2 { font-size:16px }
- #shop-wallet { margin-right:0; font-size:12px }
- #shop-panel { padding:16px }
- #shop-tabs { padding:10px; gap:4px }
- #shop-tabs button { padding:10px 12px; font-size:12px }
- .shop-items,.shop-care { grid-template-columns:1fr; gap:16px }
+ .shop-care { grid-template-columns:1fr; gap:16px }
  .shop-pet-list .pet-card { min-height:85px; flex-direction:row; aspect-ratio:auto }
  .shop-pet-preview { height:120px }
  .shop-actions { flex-direction:column }
- .shop-footer { padding:0 16px 12px }
 }
 
 
@@ -2199,3 +2203,274 @@ body.leaderboard-open { overflow: hidden; }
 .pet-gear-mini img { width:32px; height:32px; object-fit:contain }
 .pet-gear-mini.is-locked { opacity:.45 }
 .pet-gear-mini:has(img) { border-style:solid; border-color:#2f5d4b }
+
+/* 시연: 도감 칸을 눌러 다음 펫 뽑기 결과 지정 */
+.dex-slot.is-pickable { cursor:pointer }
+.dex-slot.is-pickable:hover { border-color:#4c6b66 }
+.dex-slot.is-picked { border-color:#ffe27a !important; box-shadow:0 0 0 2px #ffe27a66 }
+.dex-slot.is-picked img, .dex-slot.is-picked .dex-noimg { filter:none; opacity:1 }
+
+/* 시연: 오늘 뽑기 횟수 +1 버튼 (숫자 옆 작은 알약) */
+.gacha-facts dd:has(.demo-draws-button) { display:flex; align-items:center; gap:8px }
+#shop-panel .gacha-facts button.demo-draws-button { width:auto; padding:2px 9px; border-radius:999px; background:#253130; box-shadow:inset 0 0 0 1px #4c6b66; color:#ffe27a; font-size:11px; line-height:1.4; cursor:pointer }
+#shop-panel .gacha-facts button.demo-draws-button:hover:not(:disabled) { background:#2f3f3d }
+
+/* ───────────────────────────────────────────────────────────────
+   펫 케어 상점 테마: 펫 정원의 색(깊은 초록·미색·금빛)을 절제해서 사용.
+   상점 대화상자 안에서만 적용됩니다.
+   ─────────────────────────────────────────────────────────────── */
+.pet-shop-dialog {
+  --s-bg:#f6f3e9; --s-surface:#fffdf7; --s-sunk:#eeebdf;
+  --s-line:#e3dfd0; --s-line-strong:#d5cfbc;
+  --s-ink:#203a2e; --s-ink-2:#526253; --s-ink-3:#667260;
+  --s-accent:#2c6049; --s-accent-hover:#224c3a; --s-accent-soft:#e4eddf;
+  --s-gold:#865c29; --s-holo:#2e776f; --s-warn:#93472e;
+  width:min(1060px,calc(100% - 48px));
+  max-height:calc(100dvh - 40px);
+  overflow:hidden;
+  border:1px solid #e9dec4;
+  border-radius:24px;
+  background:var(--s-bg);
+  color:var(--s-ink);
+  box-shadow:0 24px 88px #10251db3, 0 3px 0 #ded1b4;
+  font-family:system-ui,"Apple SD Gothic Neo","Malgun Gothic",sans-serif;
+}
+.pet-shop-dialog::backdrop { background:#10251b80; backdrop-filter:blur(4px) }
+.pet-shop-dialog .grade-normal { --grade-color:#3e7d52; --slot-line:#d3e3d6 }
+.pet-shop-dialog .grade-rare { --grade-color:#3a6fb8; --slot-line:#d2def0 }
+.pet-shop-dialog .grade-legend { --grade-color:#a7741a; --slot-line:#ebddbe }
+
+.pet-shop-dialog .pet-dialog-header {
+  justify-content:flex-start;
+  gap:14px;
+  min-height:76px;
+  padding:14px 24px;
+  border:0;
+  background:radial-gradient(ellipse at 17% 0,#416a48,transparent 70%), #214638;
+  color:#fff9e7;
+}
+#shop-title { gap:12px; margin:0; font-size:21px; letter-spacing:-.04em; word-break:keep-all }
+.shop-emblem {
+  display:grid; place-items:center; flex:none; width:42px; height:42px;
+  border:1px solid #ffe8af; border-radius:14px; background:linear-gradient(145deg,#ffe9b3,#dcb676);
+  color:#34503b; box-shadow:0 2px 0 #152f26, inset 0 1px #fff4d7;
+}
+.pet-shop-dialog #shop-title .shop-emblem .icon { width:23px; height:23px; color:inherit }
+#shop-wallet {
+  display:flex; align-items:center; gap:7px; margin-left:auto; padding:8px 12px;
+  border:1px solid #fff0bd45; border-radius:12px; background:#17382d; color:#e2ebd8;
+  font-size:12px; white-space:nowrap;
+}
+#shop-wallet strong { color:#ffe2a4; font-size:15px; font-variant-numeric:tabular-nums }
+.shop-cell { flex:none; width:16px; height:16px; color:#cee4b0 }
+.pet-shop-dialog #close-shop {
+  display:grid; place-items:center; flex:none; width:40px; height:40px;
+  border:1px solid #fff0d34d; border-radius:12px; background:#fff7e210; color:#fff9e7;
+}
+#close-shop svg { width:18px; height:18px; stroke:currentColor; stroke-width:2; stroke-linecap:round }
+.pet-shop-dialog #close-shop:hover { background:#fff7e22c }
+.pet-shop-dialog #close-shop:focus-visible { outline-color:#ffe2a4 }
+.pet-shop-dialog .cell-icon { color:var(--s-holo) }
+
+#shop-tabs {
+  display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:6px;
+  padding:10px 24px; border-bottom:1px solid var(--s-line); background:#fffcf3;
+}
+#shop-tabs button {
+  display:flex; align-items:center; justify-content:center; gap:7px; min-width:0; min-height:44px; padding:5px;
+  border:1px solid transparent; border-radius:11px; background:transparent;
+  color:var(--s-ink-2); font-size:13px; font-weight:700; word-break:keep-all;
+}
+#shop-tabs svg { flex:none; width:19px; height:19px; fill:none; stroke:currentColor; stroke-width:1.65; stroke-linecap:round; stroke-linejoin:round }
+#shop-tabs button:hover { background:#f3efe2; color:var(--s-ink) }
+#shop-tabs button[aria-selected="true"] { border-color:#c9d7c0; background:#e5eedc; color:#244b36; box-shadow:inset 0 -2px #d1dfc6 }
+
+.pet-shop-dialog #shop-panel { height:min(496px,76dvh); padding:20px 24px 24px; scrollbar-color:#a2ab92 transparent }
+.pet-shop-dialog #shop-panel:has(.shop-intro) { height:min(470px,76dvh) }
+.pet-shop-dialog :is(button,#shop-panel):focus-visible { outline:2px solid var(--s-accent); outline-offset:2px }
+.pet-shop-dialog #shop-panel:focus-visible { outline-offset:-3px }
+.pet-shop-dialog #shop-panel button:not(.pet-card) { border-radius:10px; background:var(--s-accent); color:#fff; transition:background .15s }
+.pet-shop-dialog #shop-panel button:not(.pet-card):hover:not(:disabled) { background:var(--s-accent-hover) }
+.pet-shop-dialog #shop-panel button:disabled { opacity:1; background:var(--s-sunk); color:var(--s-ink-3); box-shadow:inset 0 0 0 1px var(--s-line) }
+
+.shop-intro {
+  position:relative; isolation:isolate; display:flex; align-items:center; min-height:100px;
+  padding:15px 128px 15px 20px; overflow:hidden; border:1px solid #d4ddc8; border-radius:16px;
+  background:radial-gradient(ellipse at 87% 100%,#cbdcba,transparent 50%), linear-gradient(105deg,#edf1e3,#e2ebd8);
+}
+.shop-intro::after {
+  position:absolute; z-index:-1; content:''; width:165px; aspect-ratio:1; right:2px; top:-12px; border-radius:50%;
+  border:1px solid #a6bd9380; box-shadow:0 0 0 13px #e6efda,0 0 0 14px #a6bd9370;
+}
+.shop-intro h3 { margin:0; font-size:24px; letter-spacing:-.05em }
+.shop-intro p { margin:4px 0 0; color:#415c48; font-size:13px; line-height:1.55; word-break:keep-all }
+.shop-intro img { position:absolute; z-index:-1; right:20px; top:50%; transform:translateY(-50%); width:118px; height:118px; object-fit:contain }
+.shop-items { display:grid; grid-template-columns:repeat(5,minmax(0,1fr)); gap:12px; margin-top:16px }
+.shop-item {
+  --item-tint:#e7edd7; --item-edge:#cbd6b7; --item-ink:#3c5738;
+  display:flex; flex-direction:column; min-width:0; gap:10px; padding:8px;
+  border:1px solid var(--s-line); border-radius:15px; background:var(--s-surface);
+  box-shadow:0 2px 0 #e9e2cf;
+}
+.shop-item[data-item-type="SNACK"] { --item-tint:#f5e5d4; --item-edge:#ebd2b5; --item-ink:#784b31 }
+.shop-item[data-item-type="TOY"] { --item-tint:#e1edf2; --item-edge:#bfd8df; --item-ink:#315f71 }
+.shop-item[data-item-type="EXP_POTION"] { --item-tint:#deeee4; --item-edge:#bbd9c9; --item-ink:#31654f }
+.shop-item[data-item-type="EVOLVE_STONE"] { --item-tint:#eee5f4; --item-edge:#d8c7e7; --item-ink:#62447d }
+.shop-item-art {
+  position:relative; display:grid; place-items:center; min-width:0; height:clamp(112px,13vw,152px); overflow:hidden;
+  border:1px solid var(--item-edge); border-radius:10px;
+  background:radial-gradient(ellipse at 48% 30%,#fff9 0%,transparent 66%),var(--item-tint);
+}
+.shop-item-art img,.shop-item-art svg {
+  position:absolute; inset:0; margin:auto; width:min(100%,136px); height:100%; object-fit:contain;
+  filter:drop-shadow(0 3px 3px #2944351c); transition:transform .18s ease;
+}
+.shop-item:hover .shop-item-art :is(img,svg) { transform:translateY(-2px) }
+.shop-item-info { display:flex; flex-direction:column; flex:1; gap:7px; padding:0 3px; min-width:0 }
+.shop-item h3 { margin:0; color:var(--s-ink); font-size:16px; line-height:1.25; word-break:keep-all; overflow-wrap:anywhere }
+.shop-item-effects { display:flex; flex-wrap:wrap; gap:4px; margin:0 0 4px; padding:0; list-style:none }
+.shop-item-effects li {
+  padding:3px 6px; border:1px solid var(--item-edge); border-radius:6px; background:var(--item-tint);
+  color:var(--item-ink); font-size:11px; line-height:1.2; white-space:nowrap;
+}
+.shop-item-effects b { font-variant-numeric:tabular-nums }
+.shop-item-owned { margin:auto 0 0; color:var(--s-ink-2); font-size:12px; font-variant-numeric:tabular-nums }
+.shop-item-owned b { color:var(--s-ink) }
+.pet-shop-dialog #shop-panel button.shop-buy {
+  display:flex; align-items:center; justify-content:space-between; gap:4px; min-height:44px; padding:7px 9px;
+  border:1px solid #285641; border-radius:9px; box-shadow:inset 0 1px #ffffff21;
+  font-size:12px; white-space:nowrap;
+}
+.shop-buy-price { display:flex; align-items:center; gap:4px; color:#fbe3ae; font-size:14px; font-variant-numeric:tabular-nums }
+.shop-buy-price .shop-cell { width:14px; height:14px; color:inherit }
+.pet-shop-dialog #shop-panel button.shop-buy[aria-disabled="true"] { border-color:var(--s-line-strong); background:var(--s-sunk); color:var(--s-ink-2); cursor:not-allowed }
+.shop-buy[aria-disabled="true"] .shop-buy-price { color:var(--s-ink-2) }
+.shop-empty { display:grid; justify-items:center; gap:10px; padding:38px 10px; color:var(--s-ink-2); text-align:center }
+.shop-empty p { margin:0 }
+.shop-footer { padding:9px 24px; border-top:1px solid var(--s-line); background:var(--s-surface); font-size:13px; line-height:1.5 }
+.shop-footer:not(:has(p:not(:empty))) { padding:0; border:0 }
+.shop-footer p { margin:0 }
+.pet-shop-dialog #shop-result { color:var(--s-accent); font-weight:700 }
+.pet-shop-dialog #shop-result[data-state="error"],.pet-shop-dialog #shop-save-notice { color:var(--s-warn) }
+.pet-shop-dialog .shop-coming h3 { margin:0; color:var(--s-ink) }
+.pet-shop-dialog .shop-coming p { margin:0; color:var(--s-ink-2); font-size:13px; line-height:1.6 }
+
+@media (max-width:900px) {
+  .shop-item-effects { min-height:44px; align-content:flex-start }
+}
+@media (max-width:760px) {
+  .pet-shop-dialog { width:calc(100% - 24px); max-height:calc(100dvh - 24px); border-radius:18px }
+  .pet-shop-dialog #shop-panel { padding:14px 14px 18px }
+  .pet-shop-dialog .pet-dialog-header { padding:12px 14px; min-height:64px }
+  #shop-tabs { padding:7px 14px }
+  .shop-items { grid-template-columns:repeat(3,minmax(0,1fr)); gap:10px }
+  .shop-item-effects { min-height:0 }
+  .shop-footer { padding:8px 14px }
+}
+@media (max-width:510px) {
+  .pet-shop-dialog .pet-dialog-header { gap:8px }
+  #shop-title { gap:7px; font-size:17px }
+  .shop-emblem { width:33px; height:33px; border-radius:10px }
+  .pet-shop-dialog #shop-title .shop-emblem .icon { width:19px; height:19px }
+  #shop-wallet { padding:6px; gap:4px; font-size:10px }
+  #shop-wallet strong { font-size:13px }
+  #shop-wallet .shop-cell { width:13px; height:13px }
+  #shop-tabs { padding-inline:8px; gap:2px }
+  #shop-tabs button { flex-direction:column; gap:2px; min-height:49px; font-size:11px }
+  #shop-tabs svg { width:16px; height:16px }
+  .shop-intro { min-height:82px; padding:10px 78px 10px 12px }
+  .shop-intro h3 { font-size:20px }
+  .shop-intro p { font-size:12px }
+  .shop-intro::after { width:90px; right:-12px; top:0 }
+  .shop-intro img { width:80px; height:80px; right:2px }
+  .shop-items { grid-template-columns:repeat(2,minmax(0,1fr)); margin-top:12px }
+  .shop-item h3 { font-size:15px }
+}
+@media (prefers-reduced-motion:reduce) {
+  .shop-item-art :is(img,svg) { transition:none }
+  .shop-item:hover .shop-item-art :is(img,svg) { transform:none }
+}
+
+/* 성장·상호작용 탭 */
+.care { display:grid; grid-template-columns:200px 1fr; gap:20px; align-items:start }
+.care-pets { display:flex; flex-direction:column; gap:6px; max-height:420px; overflow-y:auto; padding-right:2px }
+.pet-shop-dialog #shop-panel button.care-pet { display:flex; align-items:center; gap:10px; padding:8px 10px; border-radius:12px; background:var(--s-surface); color:var(--s-ink); text-align:left; font-weight:400; box-shadow:inset 0 0 0 1px var(--s-line) }
+.pet-shop-dialog #shop-panel button.care-pet:hover:not(:disabled) { background:var(--s-surface); box-shadow:inset 0 0 0 1px var(--s-line-strong) }
+.pet-shop-dialog #shop-panel button.care-pet[aria-pressed=true] { background:var(--s-accent-soft); box-shadow:inset 0 0 0 1.5px var(--s-accent) }
+.care-pet img, .care-pet .dex-noimg { flex:none; width:40px; height:40px; object-fit:contain }
+.care-pet img { transform:scale(1.25) }
+.care-pet .dex-noimg, .care-portrait .dex-noimg { font-size:16px }
+.care-pet span { display:flex; flex-direction:column; min-width:0 }
+.care-pet strong { font-size:13px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis }
+.care-pet small { color:var(--s-ink-3); font-size:11.5px }
+.care-detail { display:flex; flex-direction:column; gap:14px; min-width:0; padding:18px; border:1px solid var(--s-line); border-radius:16px; background:var(--s-surface) }
+.care-head { display:flex; align-items:center; gap:16px }
+.care-portrait { display:grid; place-items:center; width:96px; height:96px; flex:none; border-radius:16px; background:var(--s-sunk); overflow:hidden }
+/* 펫 그림 원본이 264px(펫은 그 안의 약 170px)이라, 원본보다 크게 늘리지 않는 크기로만 보여준다 */
+.care-portrait img { width:100%; height:100%; object-fit:contain; transform:scale(1.12) }
+.care-head h3 { margin:2px 0 0; font-size:20px; letter-spacing:-.01em }
+.care-eyebrow { margin:0; color:var(--grade-color, var(--s-ink-3)); font-size:12px; font-weight:700; letter-spacing:.02em }
+.care-sub { margin:2px 0 0; color:var(--s-ink-2); font-size:13px }
+.care-meter-head { display:flex; justify-content:space-between; margin-bottom:6px; font-size:12.5px }
+.care-meter-head span { color:var(--s-ink-2) }
+.care-meter-head b { color:var(--s-ink); font-variant-numeric:tabular-nums; font-weight:600 }
+.care-meter-bar { height:8px; border-radius:999px; background:var(--s-sunk); overflow:hidden }
+.care-meter-bar i { display:block; height:100%; border-radius:inherit; transition:width .35s ease }
+.tone-exp .care-meter-bar i { background:var(--s-accent) }
+.tone-hunger .care-meter-bar i { background:#C9864F }
+.tone-affection .care-meter-bar i { background:#D27D74 }
+.care-actions { display:grid; gap:8px }
+.care-action { display:grid; grid-template-columns:44px 1fr auto; align-items:center; gap:12px; padding:10px 12px; border:1px solid var(--s-line); border-radius:12px; background:var(--s-bg) }
+.care-action-icon { display:grid; place-items:center; width:44px; height:44px; border-radius:10px; background:var(--s-surface); box-shadow:inset 0 0 0 1px var(--s-line) }
+.care-action-icon :is(svg,img) { width:38px; height:38px }
+.care-action h4 { margin:0; font-size:13.5px }
+.care-action p { margin:2px 0 0; color:var(--s-ink-2); font-size:12px }
+.pet-shop-dialog #shop-panel .care-action button { padding:9px 16px; font-size:13px; white-space:nowrap }
+.care-note { margin:0; color:var(--s-ink-3); font-size:12px; line-height:1.6 }
+.pet-shop-dialog .shop-coming .care-portrait { width:120px; height:120px; border-radius:20px; overflow:visible }
+.pet-shop-dialog .shop-coming .care-portrait img { transform:none }
+@media (max-width:720px) {
+  .care { grid-template-columns:1fr }
+  .care-pets { flex-direction:row; max-height:none; overflow-x:auto; padding-bottom:4px }
+  .pet-shop-dialog #shop-panel button.care-pet { flex:none }
+}
+
+/* 뽑기 탭 */
+.pet-shop-dialog .gacha-kinds { padding:3px; border-radius:10px; background:var(--s-sunk); box-shadow:inset 0 0 0 1px var(--s-line) }
+.pet-shop-dialog #shop-panel .gacha-kinds button { padding:7px 16px; border-radius:8px; background:transparent; color:var(--s-ink-2); box-shadow:none }
+.pet-shop-dialog #shop-panel .gacha-kinds button:hover:not(:disabled) { background:transparent; color:var(--s-ink) }
+.pet-shop-dialog #shop-panel .gacha-kinds button[aria-pressed="true"] { background:var(--s-surface); color:var(--s-ink); box-shadow:0 1px 2px #0000001a, inset 0 0 0 1px var(--s-line) }
+.pet-shop-dialog .gacha-window { border-radius:16px; background:var(--s-surface); box-shadow:inset 0 0 0 1px var(--slot-line, var(--s-line)) }
+.pet-shop-dialog .gacha-stage { border-radius:10px }
+.pet-shop-dialog .gacha-name { color:var(--s-ink) }
+.pet-shop-dialog .gacha-note { color:var(--s-ink-2) }
+.pet-shop-dialog .gacha-facts { padding:10px 12px; border:1px solid var(--s-line); border-radius:12px; background:var(--s-surface) }
+.pet-shop-dialog .gacha-facts dt { color:var(--s-ink-2) }
+.pet-shop-dialog .gacha-facts dd { color:var(--s-gold); font-variant-numeric:tabular-nums }
+.pet-shop-dialog .gacha-reason { color:var(--s-warn) }
+.pet-shop-dialog #shop-panel button.gacha-history-toggle { background:transparent; color:var(--s-ink-2); box-shadow:inset 0 0 0 1px var(--s-line-strong) }
+.pet-shop-dialog #shop-panel button.gacha-history-toggle:hover { background:var(--s-surface); color:var(--s-ink) }
+.pet-shop-dialog .gacha-history { border:1px solid var(--s-line); background:var(--s-surface) }
+.pet-shop-dialog .gacha-history li { border-bottom-color:var(--s-line) }
+.pet-shop-dialog .gacha-history b { color:var(--s-ink) }
+.pet-shop-dialog .gacha-history time, .pet-shop-dialog .gacha-history p { color:var(--s-ink-3) }
+.pet-shop-dialog .gacha-history em { color:var(--s-gold) }
+.pet-shop-dialog .gacha-history em.is-first { color:var(--s-accent) }
+.pet-shop-dialog #shop-panel .gacha-facts button.demo-draws-button { background:var(--s-surface); color:var(--s-ink-2); box-shadow:inset 0 0 0 1px var(--s-line-strong) }
+.pet-shop-dialog #shop-panel .gacha-facts button.demo-draws-button:hover:not(:disabled) { background:var(--s-sunk); color:var(--s-ink) }
+
+/* 도감 */
+.pet-shop-dialog .gacha-dex h3 { color:var(--s-ink); font-size:19px }
+.pet-shop-dialog .gacha-dex header p, .pet-shop-dialog .dex-hint { color:var(--s-ink-2) }
+.pet-shop-dialog .dex-group h4 { border-bottom-width:1px }
+.pet-shop-dialog .dex-group h4 small { color:var(--s-ink-3) }
+.pet-shop-dialog .dex-group h4 em { color:var(--s-ink-2) }
+.pet-shop-dialog .dex-slot { border:1px solid var(--s-line); border-radius:10px; background:var(--s-sunk); color:var(--s-ink-3) }
+.pet-shop-dialog .dex-slot.owned { border-color:var(--s-line); background:var(--s-surface); color:var(--s-ink); box-shadow:none }
+.pet-shop-dialog .grade-rare .dex-slot.owned, .pet-shop-dialog .grade-legend .dex-slot.owned { border-color:var(--slot-line) }
+.pet-shop-dialog .dex-slot img, .pet-shop-dialog .dex-slot .dex-noimg { filter:grayscale(1) brightness(.5); opacity:.22 }
+.pet-shop-dialog .dex-slot.owned img, .pet-shop-dialog .dex-slot.owned .dex-noimg { filter:none; opacity:1 }
+.pet-shop-dialog .dex-noimg { background:var(--s-line); color:var(--s-ink-2) }
+.pet-shop-dialog .dex-slot.is-pickable:hover { border-color:var(--s-line-strong) }
+.pet-shop-dialog .dex-slot.is-picked { border-color:var(--s-accent) !important; box-shadow:0 0 0 2px var(--s-accent-soft) }
+.pet-shop-dialog .dex-qty { background:var(--s-ink) }

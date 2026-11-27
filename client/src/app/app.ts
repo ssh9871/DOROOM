@@ -1,5 +1,6 @@
 import { connectPetShop } from '../ui/petShop';
-import { createPetWindow, roomPetOf } from '../ui/petWindow';
+import { addDemoCells, getMe } from '../api/shop';
+import { createPetWindow, roomPetOf, yardPetOf } from '../ui/petWindow';
 import type { Pet as ServerPet } from '../../../shared/types';
 import { gamesScreen, homeScreen, roomScreen } from '../ui/screens';
 import { createPetState } from '../pets/pets';
@@ -158,12 +159,16 @@ export function startApp() {
     // 🟩 펫 창(P): 서버의 내 펫 목록으로 도감처럼 보여주고, 대표 펫을 마이룸에서 따라다니게 한다 (창규)
     let representative: ServerPet | undefined;
     let representativeKey = 'none';
+    let yardPets: ReturnType<typeof yardPetOf>[] = [];
     const petWindow = createPetWindow(root!.querySelector<HTMLElement>('#pet-window')!, pet => {
       representative = pet;
       const key = pet ? `${pet.userPetId}` : 'none';
       if (key === representativeKey) return;
       representativeKey = key;
       room?.setPet(roomPetOf(pet));
+    }, pets => {
+      yardPets = pets.map(yardPetOf);   // 펫 정원 마당: 보유 펫 전체 (장착 펫은 마당에서 빠짐)
+      room?.setYardPets(yardPets);
     });
     void petWindow.refresh();
     const updateEquipment = () => { if (pets.open) void petWindow.refresh(); };
@@ -180,13 +185,28 @@ export function startApp() {
       pets.showModal();
       room?.setPaused(true);
     };
-    const showShop = connectPetShop(shop, petState, updateEquipment);
+    const showShop = connectPetShop(shop, updateEquipment);
     const openShop = () => {
       if (dialog.open || pets.open || shop.open) return;
       setMenu(false);
       showShop();
       room?.setPaused(true);
     };
+    // 시연용 셀 충전 버튼: 현재 잔액을 보여주고, 누르면 100 셀 추가
+    const cellButton = root!.querySelector<HTMLButtonElement>('#demo-cells')!;
+    const cellText = root!.querySelector<HTMLElement>('#demo-cell-balance')!;
+    const user = account;
+    const showCells = (balance: number) => { user.cellBalance = balance; cellText.textContent = balance.toLocaleString(); };
+    showCells(user.cellBalance);
+    void getMe().then(me => showCells(me.cellBalance)).catch(() => {});
+    cellButton.addEventListener('click', async () => {
+      cellButton.disabled = true;
+      try { showCells((await addDemoCells()).balance); }
+      catch (error) { cellButton.title = error instanceof Error ? error.message : '셀을 충전하지 못했어요.'; }
+      finally { cellButton.disabled = false; canvas.focus(); }
+    });
+    shop.addEventListener('close', () => { void petWindow.refresh(); });   // 뽑기로 새 펫이 생겼을 수 있음 → 마당 다시 맞추기
+    shop.addEventListener('close', () => { void getMe().then(me => showCells(me.cellBalance)).catch(() => {}); });
     root!.querySelector('#close-shop')!.addEventListener('click', () => shop.close());
     shop.addEventListener('close', () => { room?.setPaused(false); canvas.focus(); });
     menuToggle.addEventListener('click', () => {
@@ -249,6 +269,7 @@ export function startApp() {
         },
       });
       room.setPaused(!menu.hidden || pets.open || dialog.open || shop.open);
+      room.setYardPets(yardPets);
       room.setPet(roomPetOf(representative));
     } catch (error) {
       if (currentVersion !== version) return;

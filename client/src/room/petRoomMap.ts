@@ -61,6 +61,9 @@ export const STAR_GARDEN = {
   ] as [number, number][][],
 };
 export const inStarGarden = (x: number, z: number) => x <= SG_X1 && z <= SG_Z1;
+// 노멀 펫 놀이 구역: 정원 오른쪽(광장·회전목마·상점·대관람차 쪽). 왼쪽의 성역·별빛 정원과 그 사이 길에는 가지 않습니다.
+export const NORMAL_X0 = 0;
+export const inNormalArea = (x: number, _z: number) => x >= NORMAL_X0;
 
 // 아래 풀밭 가운데의 거대한 선돌 비석(약 6m, 한자를 새김). 앞면이 화면 쪽(-z)을 봅니다.
 export const STELE = { x: -24.5, z: 8.6 };
