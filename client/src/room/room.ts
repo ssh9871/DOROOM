@@ -12,7 +12,8 @@ import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTextur
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { loadModel } from './model';
 import { buildPetRoom } from './petRoomDecor';
-import { nearShop, nearPortal, portalPosition, stepFollowing, stepMotion, type Motion } from './movement';
+import { blocked, flatWorld, nearShop, petRadius, nearPortal, portalPosition, roomLimit, stepFollowing, stepMotion, type Motion } from './movement';
+import { petRoomLayout } from './petRoomMap';
 import type { Pet } from '../pets/pets';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 
@@ -27,6 +28,10 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   if (!Engine.isSupported()) throw new Error('WebGL is not supported');
   const engine = new Engine(canvas, true, { stencil: true });
   const scene = new Scene(engine);
+  const layout = options.petRoom ? petRoomLayout : { limit: roomLimit, portal: portalPosition, shop: portalPosition, world: flatWorld };
+  const { world } = layout;
+  const portalY = 1.6 + world.height(layout.portal.x, layout.portal.z);
+  let cameraGround = 0;
   scene.clearColor = new Color4(.19, .15, .11, 1);
   const camera = new FreeCamera('room-camera', new Vector3(0, 8.7, -12), scene);
   camera.minZ = .1;
@@ -95,7 +100,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   const portal = MeshBuilder.CreateTorus('pet-room-portal', { diameter: 3, thickness: .07, tessellation: 96 }, scene);
   portal.rotation.x = Math.PI / 2;
   portal.scaling.x = .7;
-  portal.position.set(portalPosition.x, 1.6, portalPosition.z);
+  portal.position.set(layout.portal.x, portalY, layout.portal.z);
   portal.material = portalMaterial;
   const glow = new GlowLayer('portal-glow', scene, { blurKernelSize: 32 });
   glow.intensity = .85;
@@ -106,11 +111,11 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   innerMaterial.alpha = .28;
   innerMaterial.backFaceCulling = false;
   const inner = MeshBuilder.CreateDisc('portal-inner', { radius: 1.46, tessellation: 96 }, scene);
-  inner.position.set(portalPosition.x, 1.6, portalPosition.z + .03);
+  inner.position.set(layout.portal.x, portalY, layout.portal.z + .03);
   inner.scaling.x = .7;
   inner.material = innerMaterial;
 
-  if (options.petRoom) buildPetRoom(scene, shadows);
+  const petRoom = options.petRoom ? buildPetRoom(scene, shadows, glow) : undefined;
 
   const keys = new Set<string>();
   const motion: Motion = { x: 0, y: 0, z: 0, velocityY: 0 };
@@ -133,13 +138,16 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     if (companion) { clearPet(companion); companion = undefined; }
     companionAnimation = '';
     if (disposed) return;
+    petRoom?.syncYardPets(pet);
     options.onPetStatus(pet ? '펫을 불러오고 있어요.' : '');
     if (!pet) return;
     try {
       const model = await loadModel(scene, pet.modelPath, .75);
       if (disposed || version !== petVersion) { clearPet(model); return; }
       companion = model;
-      model.actor.position.set(motion.x > 7.3 ? motion.x - 1.4 : motion.x + 1.4, 0, motion.z);
+      const sideX = motion.x + 1.4;
+      const spawnX = Math.abs(sideX) <= layout.limit && !blocked(world, sideX, motion.z, petRadius) ? sideX : motion.x;
+      model.actor.position.set(spawnX, world.height(spawnX, motion.z), motion.z);
       model.container.meshes.forEach(mesh => shadows.addShadowCaster(mesh));
       options.onPetStatus('');
     } catch (error) {
@@ -150,13 +158,13 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   };
   const keyDown = (event: KeyboardEvent) => {
     if (paused || document.activeElement !== canvas || !actor || !loading.hidden) return;
-    if (event.code === 'KeyE' && !event.repeat && options.petRoom && nearShop(motion)) {
+    if (event.code === 'KeyE' && !event.repeat && options.petRoom && nearShop(motion, layout.shop, world)) {
       event.preventDefault();
       resetKeys();
       options.onShop();
       return;
     }
-    if (event.code === 'KeyE' && !event.repeat && nearPortal(motion)) {
+    if (event.code === 'KeyE' && !event.repeat && nearPortal(motion, layout.portal, world)) {
       event.preventDefault();
       paused = true;
       resetKeys();
@@ -213,7 +221,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     if (actor && loading.hidden) {
       const x = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
       const z = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
-      stepMotion(motion, x, z, jumpRequested, seconds);
+      stepMotion(motion, x, z, jumpRequested, seconds, layout.limit, world);
       jumpRequested = false;
       actor.actor.position.set(motion.x, motion.y, motion.z);
       if (x || z) actor.actor.rotation.y = Math.atan2(x, z);
@@ -224,14 +232,19 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         group?.start(next !== 'Jump');
         animation = next;
       }
-      cameraTarget.set(motion.x, 1, motion.z);
-      camera.position.set(motion.x, 8.7, motion.z - 12);
+      // 카메라는 점프가 아니라 지형 높이를 부드럽게 따라갑니다.
+      cameraGround += (world.height(motion.x, motion.z) - cameraGround) * Math.min(1, seconds * 4);
+      cameraTarget.set(motion.x, 1 + cameraGround, motion.z);
+      camera.position.set(motion.x, 8.7 + cameraGround, motion.z - 12);
       camera.setTarget(cameraTarget);
-      options.portalHint.hidden = paused || !nearPortal(motion);
-      options.shopHint.hidden = paused || !options.petRoom || !nearShop(motion);
+      options.portalHint.hidden = paused || !nearPortal(motion, layout.portal, world);
+      options.shopHint.hidden = paused || !options.petRoom || !nearShop(motion, layout.shop, world);
       if (companion && !paused) {
         const position = companion.actor.position;
-        const moving = stepFollowing(position, motion, seconds);
+        // 장애물에 막혀 너무 멀어지면 플레이어 곁으로 바로 옵니다.
+        if (Math.hypot(motion.x - position.x, motion.z - position.z) > 9) position.set(motion.x, 0, motion.z);
+        const moving = stepFollowing(position, motion, seconds, layout.limit, world);
+        position.y = world.height(position.x, position.z);
         if (moving) companion.actor.rotation.y = Math.atan2(motion.x - position.x, motion.z - position.z);
         const nextPetAnimation = moving ? 'Walk' : 'Idle';
         if (nextPetAnimation !== companionAnimation) {
