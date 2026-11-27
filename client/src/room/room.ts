@@ -11,7 +11,9 @@ import { StandardMaterial } from '@babylonjs/core/Materials/standardMaterial';
 import { DynamicTexture } from '@babylonjs/core/Materials/Textures/dynamicTexture';
 import { GlowLayer } from '@babylonjs/core/Layers/glowLayer';
 import { loadModel } from './model';
-import { nearShop, shopPosition, nearPortal, portalPosition, stepFollowing, stepMotion, type Motion } from './movement';
+import { buildPetRoom } from './petRoomDecor';
+import { blocked, flatWorld, nearShop, petRadius, nearPortal, portalPosition, roomLimit, stepFollowing, stepMotion, type Motion } from './movement';
+import { petRoomLayout } from './petRoomMap';
 import { TransformNode } from '@babylonjs/core/Meshes/transformNode';
 import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
@@ -75,6 +77,10 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   if (!Engine.isSupported()) throw new Error('WebGL is not supported');
   const engine = new Engine(canvas, true, { stencil: true });
   const scene = new Scene(engine);
+  const layout = options.petRoom ? petRoomLayout : { limit: roomLimit, portal: portalPosition, shop: portalPosition, world: flatWorld };
+  const { world } = layout;
+  const portalY = 1.6 + world.height(layout.portal.x, layout.portal.z);
+  let cameraGround = 0;
   scene.clearColor = new Color4(.19, .15, .11, 1);
   const camera = new FreeCamera('room-camera', new Vector3(0, 8.7, -12), scene);
   camera.minZ = .1;
@@ -143,7 +149,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   const portal = MeshBuilder.CreateTorus('pet-room-portal', { diameter: 3, thickness: .07, tessellation: 96 }, scene);
   portal.rotation.x = Math.PI / 2;
   portal.scaling.x = .7;
-  portal.position.set(portalPosition.x, 1.6, portalPosition.z);
+  portal.position.set(layout.portal.x, portalY, layout.portal.z);
   portal.material = portalMaterial;
   const glow = new GlowLayer('portal-glow', scene, { blurKernelSize: 32 });
   glow.intensity = .85;
@@ -154,45 +160,11 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   innerMaterial.alpha = .28;
   innerMaterial.backFaceCulling = false;
   const inner = MeshBuilder.CreateDisc('portal-inner', { radius: 1.46, tessellation: 96 }, scene);
-  inner.position.set(portalPosition.x, 1.6, portalPosition.z + .03);
+  inner.position.set(layout.portal.x, portalY, layout.portal.z + .03);
   inner.scaling.x = .7;
   inner.material = innerMaterial;
 
-  if (options.petRoom) {
-    const shopWood = new StandardMaterial('shop-wood', scene);
-    shopWood.diffuseColor = Color3.FromHexString('#D6A466');
-    const shopRoof = new StandardMaterial('shop-roof', scene);
-    shopRoof.diffuseColor = Color3.FromHexString('#62B8AD');
-    for (const [name, width, height, depth, x, y, z, material] of [
-      ['counter', 2.8, 1.1, 1.2, 0, .55, .4, shopWood],
-      ['awning', 3.2, .22, 1.8, 0, 2.65, .4, shopRoof],
-      ['left-post', .12, 2.5, .12, -1.3, 1.25, 1, shopWood],
-      ['right-post', .12, 2.5, .12, 1.3, 1.25, 1, shopWood],
-    ] as const) {
-      const mesh = MeshBuilder.CreateBox(`shop-${name}`, { width, height, depth }, scene);
-      mesh.position.set(shopPosition.x + x, y, shopPosition.z + z);
-      mesh.material = material;
-      shadows.addShadowCaster(mesh);
-    }
-    const sign = new DynamicTexture('shop-sign', { width: 512, height: 256 }, scene, false);
-    const context = sign.getContext() as CanvasRenderingContext2D;
-    context.fillStyle = '#183C3A';
-    context.fillRect(0, 0, 512, 256);
-    context.fillStyle = '#FFE2A0';
-    context.beginPath(); context.ellipse(256, 112, 38, 29, 0, 0, Math.PI * 2); context.fill();
-    for (const [x, y] of [[206, 74], [238, 52], [275, 52], [306, 74]]) {
-      context.beginPath(); context.ellipse(x, y, 13, 19, 0, 0, Math.PI * 2); context.fill();
-    }
-    context.font = 'bold 40px sans-serif'; context.textAlign = 'center';
-    context.fillText('PET SHOP', 256, 212); sign.update();
-    const signMaterial = new StandardMaterial('shop-sign', scene);
-    signMaterial.diffuseTexture = sign;
-    signMaterial.emissiveColor = new Color3(.3, .3, .3);
-    signMaterial.backFaceCulling = false;
-    const board = MeshBuilder.CreatePlane('shop-sign', { width: 2.1, height: 1.05 }, scene);
-    board.position.set(shopPosition.x, 2.12, shopPosition.z - .24);
-    board.material = signMaterial;
-  }
+  const petRoom = options.petRoom ? buildPetRoom(scene, shadows, glow) : undefined;
 
   const keys = new Set<string>();
   const motion: Motion = { x: 0, y: 0, z: 0, velocityY: 0 };
@@ -215,6 +187,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     if (companion) { clearPet(companion); companion = undefined; }
     companionAnimation = '';
     if (disposed) return;
+    petRoom?.syncYardPets(pet);
     options.onPetStatus(pet ? '펫을 불러오고 있어요.' : '');
     if (!pet) return;
     try {
@@ -223,7 +196,9 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         : (() => { throw new Error('펫 모델·그림 없음'); })();
       if (disposed || version !== petVersion) { clearPet(model); return; }
       companion = model;
-      model.actor.position.set(motion.x > 7.3 ? motion.x - 1.4 : motion.x + 1.4, 0, motion.z);
+      const sideX = motion.x + 1.4;
+      const spawnX = Math.abs(sideX) <= layout.limit && !blocked(world, sideX, motion.z, petRadius) ? sideX : motion.x;
+      model.actor.position.set(spawnX, world.height(spawnX, motion.z), motion.z);
       model.container.meshes.forEach(mesh => shadows.addShadowCaster(mesh));
       options.onPetStatus('');
     } catch (error) {
@@ -234,13 +209,13 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   };
   const keyDown = (event: KeyboardEvent) => {
     if (paused || document.activeElement !== canvas || !actor || !loading.hidden) return;
-    if (event.code === 'KeyE' && !event.repeat && options.petRoom && nearShop(motion)) {
+    if (event.code === 'KeyE' && !event.repeat && options.petRoom && nearShop(motion, layout.shop, world)) {
       event.preventDefault();
       resetKeys();
       options.onShop();
       return;
     }
-    if (event.code === 'KeyE' && !event.repeat && nearPortal(motion)) {
+    if (event.code === 'KeyE' && !event.repeat && nearPortal(motion, layout.portal, world)) {
       event.preventDefault();
       paused = true;
       resetKeys();
@@ -297,7 +272,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
     if (actor && loading.hidden) {
       const x = Number(keys.has('KeyD')) - Number(keys.has('KeyA'));
       const z = Number(keys.has('KeyW')) - Number(keys.has('KeyS'));
-      stepMotion(motion, x, z, jumpRequested, seconds);
+      stepMotion(motion, x, z, jumpRequested, seconds, layout.limit, world);
       jumpRequested = false;
       actor.actor.position.set(motion.x, motion.y, motion.z);
       if (x || z) actor.actor.rotation.y = Math.atan2(x, z);
@@ -308,14 +283,19 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         group?.start(next !== 'Jump');
         animation = next;
       }
-      cameraTarget.set(motion.x, 1, motion.z);
-      camera.position.set(motion.x, 8.7, motion.z - 12);
+      // 카메라는 점프가 아니라 지형 높이를 부드럽게 따라갑니다.
+      cameraGround += (world.height(motion.x, motion.z) - cameraGround) * Math.min(1, seconds * 4);
+      cameraTarget.set(motion.x, 1 + cameraGround, motion.z);
+      camera.position.set(motion.x, 8.7 + cameraGround, motion.z - 12);
       camera.setTarget(cameraTarget);
-      options.portalHint.hidden = paused || !nearPortal(motion);
-      options.shopHint.hidden = paused || !options.petRoom || !nearShop(motion);
+      options.portalHint.hidden = paused || !nearPortal(motion, layout.portal, world);
+      options.shopHint.hidden = paused || !options.petRoom || !nearShop(motion, layout.shop, world);
       if (companion && !paused) {
         const position = companion.actor.position;
-        const moving = stepFollowing(position, motion, seconds);
+        // 장애물에 막혀 너무 멀어지면 플레이어 곁으로 바로 옵니다.
+        if (Math.hypot(motion.x - position.x, motion.z - position.z) > 9) position.set(motion.x, 0, motion.z);
+        const moving = stepFollowing(position, motion, seconds, layout.limit, world);
+        position.y = world.height(position.x, position.z);
         if (moving) companion.actor.rotation.y = Math.atan2(motion.x - position.x, motion.z - position.z);
         if (moving) companion.face?.(motion.x - position.x);
         const nextPetAnimation = moving ? 'Walk' : 'Idle';

@@ -1025,6 +1025,19 @@ h2 {
   letter-spacing:0
 }
 
+/* 펫 정원은 하늘이 밝아서 라벨에 배경을 깔아 줍니다. */
+.room-top-label.farm {
+  padding:7px 14px;
+  margin:-7px 0 0 -6px;
+  border-radius:999px;
+  background:#1d5560cc;
+  text-shadow:none
+}
+
+.room-top-label.farm>span {
+  color:#cdf3f5
+}
+
 .room-people {
   position:absolute;
   top:20px;
