@@ -537,7 +537,7 @@ assert.equal(game.player.maxHp, 10);
 assert.equal(game.player.maxHp, preview.maxHp);
 assert.equal(preview.moveSpeedScale, 1.2);
 assert.equal(preview.bulletSpeedScale, 1.15);
-assert.deepEqual(petGearSlots.map(slot => slot.label), ['모자', '장갑', '신발']);
+assert.deepEqual(petGearSlots.map(slot => slot.label), ['모자', '목걸이', '신발']);
 assert.deepEqual(petGearLabels({ equipSlotCount: 2, equipments: [
   { slotNo: 2, equipment: { name: '운동화' } },
   { slotNo: 1, equipment: null },
