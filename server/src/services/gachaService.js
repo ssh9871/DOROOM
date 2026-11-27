@@ -1,0 +1,254 @@
+// 🟩 도로팜 — 뽑기 (명세서 3장)  담당: 창규
+// 확률은 gacha_grade_rate(등급 단위). 같은 등급 안에서는 후보(gacha_pool_entry)끼리 똑같은 확률.
+import { randomInt } from 'node:crypto';
+import { AppError } from '../utils/errors.js';
+import { addCell } from './cellService.js';
+import { addEquipment, equipmentDto } from './inventoryService.js';
+import { getPet } from './petService.js';
+
+const GRADES = ['NORMAL', 'RARE', 'LEGEND'];
+const pct = (bp) => Math.round(bp) / 100;                       // 만분율 → % (8500 → 85)
+
+// 시연용 하루 뽑기 횟수 보너스 (회원·뽑기·한국 날짜별, 서버 메모리에만 — 서버를 다시 켜면 사라짐)
+const demoBonus = new Map();
+const kstDay = () => new Date(Date.now() + 9 * 3600_000).toISOString().slice(0, 10);
+const bonusKey = (userId, poolId) => `${userId}:${poolId}:${kstDay()}`;
+export const addDemoDraws = (userId, poolId, n) => demoBonus.set(bonusKey(userId, poolId), (demoBonus.get(bonusKey(userId, poolId)) ?? 0) + n);
+const dailyLimitOf = (userId, p) => p.daily_limit ? p.daily_limit + (demoBonus.get(bonusKey(userId, p.pool_id)) ?? 0) : p.daily_limit;
+
+/** 오늘(한국시간) 이 뽑기를 몇 번 했는지 */
+export async function drawnToday(db, userId, poolId) {
+  const { rows } = await db.query(
+    `SELECT count(*)::int AS n FROM gacha_log
+      WHERE user_id = $1 AND pool_id = $2
+        AND created_at >= (date_trunc('day', now() AT TIME ZONE 'Asia/Seoul') AT TIME ZONE 'Asia/Seoul')`,
+    [userId, poolId]);
+  return rows[0].n;
+}
+
+/** 마지막 LEGEND 이후 몇 번 뽑았는지 (천장 진행도) */
+export async function drawsSinceLegend(db, userId, poolId) {
+  const { rows } = await db.query(
+    `SELECT count(*)::int AS n FROM gacha_log g
+      WHERE g.user_id = $1 AND g.pool_id = $2
+        AND g.gacha_id > COALESCE((
+              SELECT max(l.gacha_id) FROM gacha_log l
+                LEFT JOIN pet_species s ON s.species_id = l.species_id
+                LEFT JOIN equipment  e ON e.equipment_id = l.equipment_id
+               WHERE l.user_id = $1 AND l.pool_id = $2 AND COALESCE(s.grade, e.grade) = 'LEGEND'), 0)`,
+    [userId, poolId]);
+  return rows[0].n;
+}
+
+/** 뽑기 목록 + 등급 확률 + 후보별 확률 + 내 오늘 횟수·천장 진행도 → GachaPool[] */
+export async function listPools(db, userId) {
+  const pools = (await db.query('SELECT * FROM gacha_pool WHERE is_active ORDER BY pool_id')).rows;
+  const result = [];
+  for (const p of pools) {
+    const rates = (await db.query(
+      'SELECT grade, rate_bp FROM gacha_grade_rate WHERE pool_id = $1', [p.pool_id])).rows;
+    const rateOf = Object.fromEntries(rates.map(r => [r.grade, r.rate_bp]));
+
+    const cand = (await db.query(
+      `SELECT e.entry_id, e.is_drawable,
+              s.species_id, s.name AS s_name, s.grade AS s_grade, s.model_url AS s_model,
+              s.code AS s_code, s.image_url AS s_image,
+              (e.species_id IS NOT NULL AND EXISTS (
+                 SELECT 1 FROM user_pet up WHERE up.user_id = $2 AND up.species_id = e.species_id)) AS owned_pet,
+              COALESCE((SELECT ue.quantity FROM user_equipment ue
+                         WHERE ue.user_id = $2 AND ue.equipment_id = e.equipment_id), 0) AS owned_qty,
+              a.ability_id, a.code AS a_code, a.name AS a_name, a.effect_value, a.cooldown_sec,
+              q.*
+         FROM gacha_pool_entry e
+         LEFT JOIN pet_species s ON s.species_id = e.species_id
+         LEFT JOIN ability a ON a.ability_id = s.innate_ability_id
+         LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
+        WHERE e.pool_id = $1
+        ORDER BY e.entry_id`, [p.pool_id, userId])).rows;
+    const gradeOf = (c) => c.s_grade ?? c.grade;
+    const countByGrade = {};
+    // 확률은 실제로 뽑히는 후보(is_drawable)끼리만 나눈다. 도감용 후보는 0%
+    for (const c of cand) if (c.is_drawable) countByGrade[gradeOf(c)] = (countByGrade[gradeOf(c)] ?? 0) + 1;
+
+    const entries = cand.map(c => {
+      const g = gradeOf(c);
+      const probability = c.is_drawable ? pct((rateOf[g] ?? 0) / countByGrade[g]) : 0;
+      return c.species_id
+        ? { species: { speciesId: c.species_id, name: c.s_name, grade: c.s_grade, modelUrl: c.s_model,
+                       code: c.s_code, imageUrl: c.s_image,
+                       ability: { abilityId: c.ability_id, code: c.a_code, name: c.a_name,
+                                  effectValue: Number(c.effect_value), cooldownSec: c.cooldown_sec } },
+            probability, owned: c.owned_pet, drawable: c.is_drawable }  // 도감: 가진 펫은 컬러, 없으면 흐리게
+        : { equipment: equipmentDto(c), probability, owned: c.owned_qty > 0, drawable: c.is_drawable };
+    });
+
+    result.push({
+      poolId: p.pool_id, poolType: p.pool_type, name: p.name, costCell: p.cost_cell,
+      pityCount: p.pity_count, dailyLimit: dailyLimitOf(userId, p),
+      drawnToday: await drawnToday(db, userId, p.pool_id),
+      drawsSinceLegend: p.pity_count ? await drawsSinceLegend(db, userId, p.pool_id) : null,
+      gradeRates: GRADES.filter(g => rateOf[g] != null && countByGrade[g]).map(g => ({ grade: g, probability: pct(rateOf[g]) })),
+      entries,
+    });
+  }
+  return result;
+}
+
+/**
+ * 뽑기 1회. withTransaction 안에서 호출 (중간에 실패하면 셀·펫·기록 전부 취소).
+ * 순서: 회원 잠금 → 하루 횟수 확인 → 등급 추첨(천장이면 LEGEND 확정) → 등급 안에서 후보 균등 추첨
+ *      → 기록 → 셀 차감 → 펫 지급 or 중복 환급 / 장비 수량 +1
+ * @returns GachaResult
+ */
+export async function drawOnce(client, userId, poolId, { forceId = null } = {}) {
+  const poolRow = (await client.query('SELECT * FROM gacha_pool WHERE pool_id = $1 AND is_active', [poolId])).rows[0];
+  if (!poolRow) throw new AppError('NOT_FOUND', '없는 뽑기입니다');
+
+  // 같은 사람이 동시에 여러 번 누르면 한 번씩 차례로 처리되게 회원 행을 잠금
+  await client.query('SELECT 1 FROM app_user WHERE user_id = $1 FOR UPDATE', [userId]);
+
+  const dailyLimit = dailyLimitOf(userId, poolRow);
+  if (!forceId && dailyLimit && (await drawnToday(client, userId, poolId)) >= dailyLimit) {
+    throw new AppError('DAILY_LIMIT', `오늘은 ${dailyLimit}번까지 뽑을 수 있어요`);
+  }
+
+  // 후보 (등급별로 묶기)
+  const cand = (await client.query(
+    `SELECT e.species_id, e.equipment_id, COALESCE(s.grade, q.grade) AS grade
+       FROM gacha_pool_entry e
+       LEFT JOIN pet_species s ON s.species_id = e.species_id
+       LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
+      WHERE e.pool_id = $1 AND e.is_drawable
+        -- 펫은 중복 없이: 이미 가진 펫은 후보에서 뺀다 (장비는 합치기 재료라 중복 허용)
+        AND (e.species_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM user_pet u WHERE u.user_id = $2 AND u.species_id = e.species_id))`, [poolId, userId])).rows;   // 도감 전용 후보는 추첨에서 뺀다
+  const byGrade = {};
+  for (const c of cand) (byGrade[c.grade] ??= []).push(c);
+
+  // 1) 등급 추첨 — 후보가 있는 등급만, 확률 합으로 정규화
+  const rates = (await client.query(
+    'SELECT grade, rate_bp FROM gacha_grade_rate WHERE pool_id = $1', [poolId])).rows
+    .filter(r => r.rate_bp > 0 && byGrade[r.grade]?.length);
+  if (!rates.length && !forceId) {
+    throw new AppError('VALIDATION', poolRow.pool_type === 'PET' ? '모든 펫을 만났어요' : '뽑기 후보가 없습니다');
+  }
+
+  let grade;
+  let isPity = false;
+  let picked;
+  if (forceId) {
+    // 시연용 지정 뽑기: 이 뽑기의 후보(도감 전용 포함) 중 지정한 펫(speciesId)·장비(equipmentId)를 그대로 지급
+    const column = poolRow.pool_type === 'PET' ? 'species_id' : 'equipment_id';
+    picked = (await client.query(
+      `SELECT e.species_id, e.equipment_id, COALESCE(s.grade, q.grade) AS grade
+         FROM gacha_pool_entry e
+         LEFT JOIN pet_species s ON s.species_id = e.species_id
+         LEFT JOIN equipment q ON q.equipment_id = e.equipment_id
+        WHERE e.pool_id = $1 AND e.${column} = $2`, [poolId, forceId])).rows[0];
+    if (!picked) throw new AppError('VALIDATION', '이 뽑기에 없는 후보입니다');
+    if (picked.species_id && (await client.query(
+      'SELECT 1 FROM user_pet WHERE user_id = $1 AND species_id = $2', [userId, picked.species_id])).rows.length) {
+      throw new AppError('VALIDATION', '이미 함께하는 펫이에요');
+    }
+    grade = picked.grade;
+  } else if (poolRow.pity_count && byGrade.LEGEND?.length
+      && (await drawsSinceLegend(client, userId, poolId)) >= poolRow.pity_count - 1) {
+    grade = 'LEGEND';                                   // 천장: 30번째는 LEGEND 확정
+    isPity = true;
+  } else {
+    const total = rates.reduce((sum, r) => sum + r.rate_bp, 0);
+    let roll = randomInt(total);                        // 0 ~ total-1
+    for (const r of GRADES.map(g => rates.find(x => x.grade === g)).filter(Boolean)) {
+      if (roll < r.rate_bp) { grade = r.grade; break; }
+      roll -= r.rate_bp;
+    }
+  }
+
+  // 2) 그 등급 안에서 균등 추첨
+  if (!picked) {
+    const list = byGrade[grade];
+    picked = list[randomInt(list.length)];
+  }
+
+  // 3) 결과 처리
+  let isDuplicate = false;
+  let refundCell = 0;
+  if (picked.species_id) {
+    const owned = await client.query(
+      'SELECT user_pet_id FROM user_pet WHERE user_id = $1 AND species_id = $2', [userId, picked.species_id]);
+    isDuplicate = owned.rows.length > 0;
+    if (isDuplicate) {
+      refundCell = (await client.query(
+        'SELECT duplicate_refund_cell FROM pet_grade_rule WHERE grade = $1', [grade])).rows[0].duplicate_refund_cell;
+    }
+  } else {
+    const owned = await client.query(
+      'SELECT quantity FROM user_equipment WHERE user_id = $1 AND equipment_id = $2', [userId, picked.equipment_id]);
+    isDuplicate = (owned.rows[0]?.quantity ?? 0) > 0;  // 장비는 중복이어도 환급 없이 수량 +1 (합치기 재료)
+  }
+
+  const log = await client.query(
+    `INSERT INTO gacha_log (user_id, pool_id, species_id, equipment_id, is_duplicate, is_pity)
+     VALUES ($1, $2, $3, $4, $5, $6) RETURNING gacha_id`,
+    [userId, poolId, picked.species_id, picked.equipment_id, isDuplicate, isPity]);
+  const gachaId = log.rows[0].gacha_id;
+
+  let balance = await addCell(client, userId, -poolRow.cost_cell,
+    poolRow.pool_type === 'PET' ? 'PET_GACHA' : 'EQUIP_GACHA', gachaId);  // 셀 부족이면 여기서 전부 취소
+
+  const result = { gachaId, poolId, grade, isDuplicate, isPity, balance };
+  if (picked.species_id) {
+    let userPetId;
+    if (isDuplicate) {
+      if (refundCell > 0) balance = await addCell(client, userId, refundCell, 'DUPLICATE_REFUND', gachaId);
+      userPetId = (await client.query(
+        'SELECT user_pet_id FROM user_pet WHERE user_id = $1 AND species_id = $2', [userId, picked.species_id])).rows[0].user_pet_id;
+    } else {
+      const first = (await client.query('SELECT 1 FROM user_pet WHERE user_id = $1 LIMIT 1', [userId])).rows.length === 0;
+      userPetId = (await client.query(
+        `INSERT INTO user_pet (user_id, species_id, is_representative) VALUES ($1, $2, $3) RETURNING user_pet_id`,
+        [userId, picked.species_id, first])).rows[0].user_pet_id;  // 첫 펫이면 대표 펫으로
+    }
+    result.pet = await getPet(client, userId, userPetId);
+    const img = (await client.query('SELECT code, image_url FROM pet_species WHERE species_id = $1', [picked.species_id])).rows[0];
+    result.pet.species.code = img.code;
+    result.pet.species.imageUrl = img.image_url;
+    result.refundCell = refundCell;
+  } else {
+    await addEquipment(client, userId, picked.equipment_id, 1);
+    const row = (await client.query(
+      `SELECT q.*, ue.quantity FROM user_equipment ue JOIN equipment q ON q.equipment_id = ue.equipment_id
+        WHERE ue.user_id = $1 AND ue.equipment_id = $2`, [userId, picked.equipment_id])).rows[0];
+    result.equipment = { equipment: equipmentDto(row), quantity: row.quantity };
+  }
+  result.balance = balance;
+  return result;
+}
+
+/**
+ * 뽑기 기록 (최근 순). poolType 으로 거를 수 있음.
+ * 중복 펫 환급 셀은 원장(DUPLICATE_REFUND, ref_id = gacha_id)에서 가져온다.
+ * @returns GachaHistoryEntry[]
+ */
+export async function listHistory(db, userId, { poolType = null, limit = 30 } = {}) {
+  const { rows } = await db.query(
+    `SELECT l.gacha_id, l.pool_id, p.pool_type, l.is_duplicate, l.is_pity, l.created_at,
+            s.species_id, s.name AS s_name, s.grade AS s_grade, s.code AS s_code, s.image_url AS s_image,
+            q.*, COALESCE(s.grade, q.grade) AS draw_grade,
+            (SELECT t.amount FROM cell_transaction t
+              WHERE t.user_id = l.user_id AND t.reason = 'DUPLICATE_REFUND' AND t.ref_id = l.gacha_id) AS refund_cell
+       FROM gacha_log l
+       JOIN gacha_pool p ON p.pool_id = l.pool_id
+       LEFT JOIN pet_species s ON s.species_id = l.species_id
+       LEFT JOIN equipment q ON q.equipment_id = l.equipment_id
+      WHERE l.user_id = $1 AND ($2::text IS NULL OR p.pool_type = $2)
+      ORDER BY l.gacha_id DESC
+      LIMIT $3`, [userId, poolType, limit]);
+  return rows.map(r => ({
+    gachaId: Number(r.gacha_id), poolId: r.pool_id, poolType: r.pool_type, grade: r.draw_grade,
+    isDuplicate: r.is_duplicate, isPity: r.is_pity, refundCell: r.refund_cell ?? 0, createdAt: r.created_at,
+    ...(r.species_id
+      ? { species: { speciesId: r.species_id, name: r.s_name, grade: r.s_grade, code: r.s_code, imageUrl: r.s_image } }
+      : { equipment: equipmentDto(r) }),
+  }));
+}

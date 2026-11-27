@@ -27,7 +27,7 @@ INSERT INTO item (code,name,item_type,price_cell,hunger_restore,affection_restor
  ('BASIC_FOOD','기본 사료','FOOD',10,30,0,0,'{}'),
  ('COOKIE','펫 쿠키','SNACK',20,10,10,0,'{}'),
  ('BALL','공','TOY',30,0,20,0,'{}'),
- ('EXP_POTION_S','경험치 포션(소)','EXP_POTION',50,0,0,200,'{}'),
+ ('EXP_POTION_S','경험치 포션','EXP_POTION',50,0,0,200,'{}'),
  ('EVOLVE_STONE','진화석','EVOLVE_STONE',100,0,0,0,'{}'),
  ('BUFF_INVINCIBLE','시작 무적 5초','GAME_BUFF',40,0,0,0,'{"type":"INVINCIBLE","sec":5}');
 
