@@ -5,7 +5,7 @@ import { ok } from '../utils/response.js';
 import { AppError } from '../utils/errors.js';
 import { wrap } from '../middleware/errorHandler.js';
 import { requireAuth } from '../middleware/auth.js';
-import { getBalance, listTransactions } from '../services/cellService.js';
+import { addCell, getBalance, listTransactions } from '../services/cellService.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -25,6 +25,15 @@ export async function getUserDto(db, userId) {
 
 // GET /me → User
 router.get('/', wrap(async (req, res) => ok(res, await getUserDto(pool, req.userId))));
+
+// POST /me/demo-cells {amount?} → {balance}   (기본 100)   시연용 셀 충전 (데모 로그인이 켜진 개발 환경에서만)
+router.post('/demo-cells', wrap(async (req, res) => {
+  if (process.env.NODE_ENV === 'production' || process.env.DEMO_ACCOUNT_LOGIN !== 'true') {
+    throw new AppError('VALIDATION', '시연 환경에서만 셀을 충전할 수 있어요');
+  }
+  const amount = Number.isInteger(req.body?.amount) ? Math.min(Math.max(req.body.amount, 1), 100000) : 100;
+  ok(res, { balance: await withTransaction(client => addCell(client, req.userId, amount, 'ADMIN')) });
+}));
 
 // GET /me/cells?limit=50 → {balance, transactions}
 router.get('/cells', wrap(async (req, res) => {
