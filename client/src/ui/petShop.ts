@@ -29,12 +29,17 @@ const itemEffects = (item: Item) => [
 
 const shopCell = '<svg class="shop-cell" viewBox="0 0 20 20" aria-hidden="true"><path d="m10 1.5 7.5 4.3v8.4L10 18.5l-7.5-4.3V5.8Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity=".18"/><path d="M10 5.5V14.5M6 7.75l8 4.5m0-4.5-8 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
 
-function renderShopItem(item: Item, quantity: number, balance: number | null, buying: number | null) {
+const MAX_BUY = 99;   // 한 번에 살 수 있는 최대 개수 (서버도 1~99만 받음)
+const clampCount = (count: number | undefined) => Math.min(MAX_BUY, Math.max(1, count ?? 1));
+
+function renderShopItem(item: Item, quantity: number, balance: number | null, buying: number | null, count: number) {
   const name = escapeHtml(itemName(item));
-  const price = item.priceCell.toLocaleString();
+  const amount = clampCount(count);
+  const total = (item.priceCell * amount).toLocaleString();
   const pending = item.itemId === buying;
-  const insufficient = balance !== null && balance < item.priceCell;
-  const action = pending ? '구매 중…' : insufficient ? '셀 부족' : '1개 구매';
+  const insufficient = balance !== null && balance < item.priceCell * amount;
+  const locked = buying !== null;
+  const action = pending ? '구매 중…' : `${amount}개 구매`;
   return `<article class="shop-item" data-item-type="${item.itemType}" aria-labelledby="shop-item-${item.itemId}">
     <div class="shop-item-art">${itemArt(item.itemType)}</div>
     <div class="shop-item-info">
@@ -43,9 +48,14 @@ function renderShopItem(item: Item, quantity: number, balance: number | null, bu
         `<li>${label}${value ? ` <b>${value}</b>` : ''}</li>`).join('')}</ul>
       <p class="shop-item-owned">보유 <b>${quantity.toLocaleString()}개</b></p>
     </div>
-    <button class="shop-buy" id="buy-${item.itemId}" data-buy="${item.itemId}"
-      aria-label="${name}, ${price}셀 · ${action}" ${buying !== null || insufficient ? 'aria-disabled="true"' : ''}>
-      <span class="shop-buy-price">${shopCell}${price}</span><span>${action}</span>
+    <div class="shop-qty" role="group" aria-label="${name} 구매 개수">
+      <button type="button" id="qty-dec-${item.itemId}" data-qty-dec="${item.itemId}" aria-label="${name} 1개 줄이기" ${locked || amount <= 1 ? 'disabled' : ''}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <output id="qty-${item.itemId}" aria-live="polite">${amount}<small>개</small></output>
+      <button type="button" id="qty-inc-${item.itemId}" data-qty-inc="${item.itemId}" aria-label="${name} 1개 늘리기" ${locked || amount >= MAX_BUY ? 'disabled' : ''}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8 3.5v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+    </div>
+    <button class="shop-buy${insufficient ? ' is-short' : ''}" id="buy-${item.itemId}" data-buy="${item.itemId}"
+      aria-label="${name} ${amount}개, ${total}셀 · ${action}${insufficient ? ' (보유 셀 부족)' : ''}" ${locked ? 'aria-disabled="true"' : ''}>
+      <span class="shop-buy-price">${shopCell}${total}</span><span>${action}</span>
     </button>
   </article>`;
 }
@@ -237,6 +247,7 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
   let careDetail: PetDetail | null = null; // 고른 펫의 다음 진화 조건
   let busy = false;
   let buying: number | null = null;
+  let buyCount: Record<number, number> = {};   // 돌봄 용품별로 고른 구매 개수 (기본 1개)
   // 서버에서 불러온 값
   let serverItems: Item[] = [];
   let owned: Record<number, number> = {};
@@ -271,7 +282,7 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
         <div><h3>돌봄 용품</h3><p>먹이와 장난감은 상호작용에서, 포션은 펫 성장에서 사용해요.</p></div>
         <img src="/assets/pets/pet-dog.png" alt="" draggable="false"/>
       </div>`;
-      const items = serverItems.map(item => renderShopItem(item, owned[item.itemId] ?? 0, balance, buying)).join('');
+      const items = serverItems.map(item => renderShopItem(item, owned[item.itemId] ?? 0, balance, buying, buyCount[item.itemId] ?? 1)).join('');
       const content = loading ? '<p role="status">상품을 불러오고 있어요.</p>'
         : loadError ? `<p>${escapeHtml(loadError)}</p><button data-reload>다시 불러오기</button>`
         : !items ? '<p>지금 판매 중인 상품이 없어요.</p>' : '';
@@ -387,15 +398,23 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
   const purchase = async (button: HTMLButtonElement) => {
     if (buying !== null || busy || phase === 'charging' || phase === 'reveal') return;
     const itemId = Number(button.dataset.buy);
+    const item = serverItems.find(entry => entry.itemId === itemId);
+    if (!item) return;
+    const amount = clampCount(buyCount[itemId]);
+    if (balance !== null && balance < item.priceCell * amount) {
+      result.textContent = `보유 셀이 부족해요. ${amount}개를 사려면 ${(item.priceCell * amount).toLocaleString()}셀이 필요해요. (보유 ${balance.toLocaleString()}셀)`;
+      result.dataset.state = 'error';
+      return;
+    }
     buying = itemId;
     result.textContent = '';
     refresh();
     panel.querySelector<HTMLButtonElement>(`#buy-${itemId}`)?.focus({ preventScroll: true });
     try {
-      const bought = await buyItem(itemId, 1);
+      const bought = await buyItem(itemId, amount);
       balance = bought.balance;
       owned[itemId] = bought.item.quantity;
-      result.textContent = `${itemName(bought.item.item)} 1개를 구매했어요. · ${bought.item.quantity.toLocaleString()}개 보유`;
+      result.textContent = `${itemName(bought.item.item)} ${amount}개를 구매했어요. · ${bought.item.quantity.toLocaleString()}개 보유`;
       result.dataset.state = 'success';
       onChange();
     } catch (error) {
@@ -405,10 +424,23 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
       const focusedId = panel.contains(document.activeElement) ? document.activeElement?.id : '';
       buying = null;
       refresh();
-      if (dialog.open && activeTab === 2 && focusedId?.startsWith('buy-')) {
+      if (dialog.open && activeTab === 2 && (focusedId?.startsWith('buy-') || focusedId?.startsWith('qty-'))) {
         panel.querySelector<HTMLButtonElement>(`#${focusedId}`)?.focus({ preventScroll: true });
       }
     }
+  };
+  // 구매 개수 −/＋ (1개 ~ 99개, 잔액이 모자라면 구매할 때 알려줌)
+  const changeCount = (button: HTMLButtonElement) => {
+    if (buying !== null) return;
+    const itemId = Number(button.dataset.qtyDec ?? button.dataset.qtyInc);
+    const item = serverItems.find(entry => entry.itemId === itemId);
+    if (!item) return;
+    buyCount[itemId] = clampCount(clampCount(buyCount[itemId]) + (button.dataset.qtyInc ? 1 : -1));
+    refresh();
+    // 끝(1개·99개)에 닿아 버튼이 꺼지면 반대쪽 버튼으로 포커스를 옮김
+    const same = panel.querySelector<HTMLButtonElement>(`#${button.id}`);
+    const other = panel.querySelector<HTMLButtonElement>(`#qty-${button.dataset.qtyInc ? 'dec' : 'inc'}-${itemId}`);
+    (same && !same.disabled ? same : other && !other.disabled ? other : panel.querySelector<HTMLButtonElement>(`#buy-${itemId}`))?.focus({ preventScroll: true });
   };
   // 뽑기: 서버가 셀 차감·펫 지급(또는 중복 환급)을 처리. 결과가 오면 연출을 보여주고, 끝나면 도감·남은 횟수를 다시 그림
   const wait = (ms: number) => new Promise<void>(resolve => {
@@ -489,6 +521,7 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
       void careAct(async () => { const pet = await usePetPotion(careId!, itemId); return { pet, message: `경험치 포션을 썼어요. 지금 Lv. ${pet.level}이에요.` }; }, '[data-potion]'); return;
     }
     if (button.hasAttribute('data-evolve')) { void careAct(async () => { const pet = await evolvePet(careId!); return { pet, message: `${named(pet)}이(가) ${pet.evolutionStage}단계로 진화했어요!` }; }, '[data-evolve]'); return; }
+    if (button.dataset.qtyDec || button.dataset.qtyInc) { changeCount(button); return; }
     if (button.dataset.buy) { void purchase(button); return; }
     else if (button.dataset.draw) { void draw(Number(button.dataset.draw)); return; }
     else if (button.dataset.demoDraws) { void moreDraws(Number(button.dataset.demoDraws)); return; }
@@ -523,11 +556,21 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
     const slot = (event.target as HTMLElement).closest<HTMLElement>('[data-pick]');
     if (slot && (event.key === 'Enter' || event.key === ' ')) { event.preventDefault(); pickDex(slot); }
   });
+  // ESC 로 상점 닫기: 포커스가 어디에 있든(다시 그려져서 body 로 빠진 경우 포함) 확실히 닫히게 직접 처리
+  document.addEventListener('keydown', event => {
+    if (event.key !== 'Escape' || event.repeat || !dialog.open || !dialog.isConnected) return;
+    event.preventDefault();
+    event.stopPropagation();
+    dialog.close();
+  }, true);
+  dialog.addEventListener('cancel', event => { event.preventDefault(); dialog.close(); });
   // 상점을 닫았다 다시 열면 뽑기 칸은 다시 알로 (연출 중이면 그대로 둠)
   dialog.addEventListener('close', () => {
     if (phase === 'charging' || phase === 'reveal') return;
     phase = 'idle'; lastDraw = null; newKey = null; history = null;
   });
+  // 상점을 닫으면 고른 구매 개수는 다시 1개로
+  dialog.addEventListener('close', () => { buyCount = {}; });
   return () => {
     if (buying === null) { loading = true; loadError = ''; }
     selectTab(2);
