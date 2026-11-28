@@ -19,6 +19,7 @@ import { Texture } from '@babylonjs/core/Materials/Textures/texture';
 import type { AbstractMesh } from '@babylonjs/core/Meshes/abstractMesh';
 import type { AnimationGroup } from '@babylonjs/core/Animations/animationGroup';
 import { loadPicturePet, type Companion } from './petPicture';
+import { createPetGait, type PetGait } from './petGait';
 import type { YardPet } from './petYard';
 import '@babylonjs/core/Lights/Shadows/shadowGeneratorSceneComponent';
 
@@ -134,6 +135,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   let petVersion = 0;
   let companion: Companion | undefined;
   let companionAnimation = '';
+  let companionGait: PetGait | null = null;   // 다리 부품을 코드로 움직이는 생성 모델 펫 (창규)
   let actor: Awaited<ReturnType<typeof loadModel>> | undefined;
   let animation = '';
   const resetKeys = () => { keys.clear(); jumpRequested = false; };
@@ -145,6 +147,7 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
   const setPet = async (pet: RoomPet | null) => {
     const version = ++petVersion;
     if (companion) { clearPet(companion); companion = undefined; }
+    companionGait = null;
     companionAnimation = '';
     if (disposed) return;
     petRoom?.syncYardPets(pet);
@@ -156,6 +159,8 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         : (() => { throw new Error('펫 모델·그림 없음'); })();
       if (disposed || version !== petVersion) { clearPet(model); return; }
       companion = model;
+      // 걷기 애니메이션이 없는 3D 모델은 다리 부품을 직접 움직인다 (다리가 없으면 null → 통통 튀기)
+      companionGait = model.container.animationGroups.length || !pet.modelPath ? null : createPetGait(model.container.meshes, model.actor);
       const sideX = motion.x + 1.4;
       const spawnX = Math.abs(sideX) <= layout.limit && !blocked(world, sideX, motion.z, petRadius) ? sideX : motion.x;
       model.actor.position.set(spawnX, world.height(spawnX, motion.z), motion.z);
@@ -256,8 +261,9 @@ export function createRoom(canvas: HTMLCanvasElement, nameTag: HTMLElement, load
         if (Math.hypot(motion.x - position.x, motion.z - position.z) > 9) position.set(motion.x, 0, motion.z);
         const moving = stepFollowing(position, motion, seconds, layout.limit, world);
         position.y = world.height(position.x, position.z);
-        // 걷기 동작이 없는 모델(생성 모델·그림 펫)은 걸을 때 통통 튀게 한다
-        if (moving && !companion.container.animationGroups.length) position.y += Math.abs(Math.sin(performance.now() / 1000 * 11)) * .08;
+        // 걷기 동작이 없는 모델: 다리가 있으면 다리를 번갈아 움직이고, 다리가 없는 모델·그림 펫은 걸을 때 통통 튀게 한다
+        if (companionGait) companionGait.update(moving, seconds);
+        else if (moving && !companion.container.animationGroups.length) position.y += Math.abs(Math.sin(performance.now() / 1000 * 11)) * .08;
         if (moving) companion.actor.rotation.y = Math.atan2(motion.x - position.x, motion.z - position.z);
         if (moving) companion.face?.(motion.x - position.x);
         const nextPetAnimation = moving ? 'Walk' : 'Idle';
