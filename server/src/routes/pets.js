@@ -53,15 +53,15 @@ router.patch('/:userPetId', wrap(async (req, res) => {
   if (typeof isRepresentative !== 'boolean') throw new AppError('VALIDATION', 'isRepresentative(true/false)가 필요합니다');
   ok(res, await withTransaction(client => setRepresentative(client, req.userId, userPetId, isRepresentative)));
 }));
-// 돌보기·성장: {itemId} → {pet, used} / → Pet / {itemId} → Pet / → Pet
+// 돌보기·성장: {itemId, quantity?} → {pet, used, quantity} / → Pet / {itemId, quantity?} → Pet / → Pet  (quantity 생략 = 1개)
 router.post('/:userPetId/feed', wrap(async (req, res) => {
-  ok(res, await withTransaction(client => feedPet(client, req.userId, petIdOf(req), Number(req.body?.itemId))));
+  ok(res, await withTransaction(client => feedPet(client, req.userId, petIdOf(req), Number(req.body?.itemId), req.body?.quantity)));
 }));
 router.post('/:userPetId/pat', wrap(async (req, res) => {
   ok(res, await withTransaction(client => patPet(client, req.userId, petIdOf(req))));
 }));
 router.post('/:userPetId/use-potion', wrap(async (req, res) => {
-  ok(res, await withTransaction(client => usePotion(client, req.userId, petIdOf(req), Number(req.body?.itemId))));
+  ok(res, await withTransaction(client => usePotion(client, req.userId, petIdOf(req), Number(req.body?.itemId), req.body?.quantity)));
 }));
 router.post('/:userPetId/evolve', wrap(async (req, res) => {
   ok(res, await withTransaction(client => evolvePet(client, req.userId, petIdOf(req))));

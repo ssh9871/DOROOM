@@ -2447,6 +2447,11 @@ body.leaderboard-open { overflow: hidden; }
 .care-action h4 { margin:0; font-size:13.5px }
 .care-action p { margin:2px 0 0; color:var(--s-ink-2); font-size:12px }
 .pet-shop-dialog #shop-panel .care-action button { padding:9px 16px; font-size:13px; white-space:nowrap }
+/* 성장·상호작용: 한 번에 쓸 개수 −/＋ (창규) */
+.care-action:has(.care-qty) { grid-template-columns:44px 1fr auto auto }
+.care-qty { width:104px; margin:0 }
+.pet-shop-dialog #shop-panel .care-action .care-qty button { padding:0; font-size:17px }
+.pet-shop-dialog #shop-panel .care-action:has(.care-qty) > button { min-width:96px }   /* 버튼 폭을 맞춰 −/＋ 칸이 한 줄로 정렬되게 */
 .care-note { margin:0; color:var(--s-ink-3); font-size:12px; line-height:1.6 }
 .pet-shop-dialog .shop-coming .care-portrait { width:120px; height:120px; border-radius:20px; overflow:visible }
 .pet-shop-dialog .shop-coming .care-portrait img { transform:none }

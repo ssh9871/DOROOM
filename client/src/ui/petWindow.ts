@@ -36,9 +36,10 @@ const modelCodes = new Set(['dog', 'cat', 'panda', 'gumiho',
 // 마이룸에서 맞출 모델 전체 높이. 기본 .75 — 구미호는 꼬리가 머리 위로 솟아서 전체 높이로 맞추면 몸이 작아지므로
 // 몸통 높이가 판다와 같아지도록 크게 잡는다 (판다 몸통 1.44/전체 1.57, 구미호 몸통 1.27/전체 2.03 → 약 1.1)
 // 생성 모델 20종은 몸통이 다른 펫과 비슷한 크기로 보이도록, 귀·뿔·꼬리까지 포함한 전체 높이를 모델마다 따로 잡는다.
+// 모델 전체 높이(귀·뿔·꼬리 포함). 노말 생성 모델 20종은 몸통 정육면체가 모두 같은 크기(약 0.56)가 되도록 맞춘 값 — 강아지·고양이와도 비슷한 크기
 const modelHeight: Record<string, number> = { gumiho: 1.1,
-  beaver: .75, bee: .93, boar: .75, caterpillar: .78, chick: .74, cow: .76, crab: .71, deer: .88, elephant: .66, fish: .7,
-  giraffe: .82, koala: .76, lion: .78, monkey: .82, parrot: .77, penguin: .66, pig: .73, polarbear: .75, rabbit: .99, tiger: .81 };
+  beaver: .80, bee: 1.07, boar: .79, caterpillar: .78, chick: .78, cow: .79, crab: .67, deer: .91, elephant: .68, fish: .69,
+  giraffe: .88, koala: .71, lion: .91, monkey: .98, parrot: .80, penguin: .68, pig: .73, polarbear: .76, rabbit: 1.01, tiger: .87 };
 /** 마이룸이 따라다니게 할 펫 정보 (room.setPet 에 그대로 넘긴다) */
 export const roomPetOf = (pet: Pet | undefined) => pet
   ? { id: String(pet.userPetId), name: pet.nickname ?? pet.species.name,

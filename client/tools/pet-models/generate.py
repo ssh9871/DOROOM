@@ -8,7 +8,8 @@ This is procedural mesh construction, not image-to-3D reconstruction.
 import json, math, struct, pathlib, zipfile
 from collections import defaultdict
 
-OUT = pathlib.Path(__file__).resolve().parents[2] / 'public' / 'assets' / 'pet'   # client/public/assets/pet
+import os
+OUT = pathlib.Path(os.environ.get('PET_OUT') or pathlib.Path(__file__).resolve().parents[2] / 'public' / 'assets' / 'pet')   # client/public/assets/pet
 TAU = math.tau
 def add(a,b): return tuple(x+y for x,y in zip(a,b))
 def sub(a,b): return tuple(x-y for x,y in zip(a,b))
@@ -20,6 +21,9 @@ def norm(a):
 # glTF baseColorFactor 는 선형 값이다. 화면 색(sRGB 16진수)을 그대로 넣으면 실제보다 훨씬 연하게 보이므로 변환한다.
 def srgb_to_linear(c): return c/12.92 if c<=.04045 else ((c+.055)/1.055)**2.4
 def rgb(h): return [srgb_to_linear(int(h[i:i+2],16)/255) for i in (0,2,4)]+[1]
+def quat_mul(a,b):
+    ax,ay,az,aw=a;bx,by,bz,bw=b
+    return [aw*bx+ax*bw+ay*bz-az*by,aw*by-ax*bz+ay*bw+az*bx,aw*bz+ax*by-ay*bx+az*bw,aw*bw-ax*bx-ay*by-az*bz]
 def quat(axis,angle): return list(mul(norm(axis),math.sin(angle/2)))+[math.cos(angle/2)]
 
 def orient(p,n,idx):
@@ -81,38 +85,109 @@ def tube(points,radii,sides=9):
         for i in range(sides):idx.extend((center,start+i,start+(i+1)%sides))
     return orient(p,n,idx)
 
+
+def slab(size,r,axis=2,seg=6):
+    """둥근 사각형을 axis 방향으로 민 판 (몸통을 감싸는 띠·줄무늬용). 모서리 둥글기는 단면에만 적용."""
+    ax=[i for i in range(3) if i!=axis]; w,h=size[ax[0]]/2,size[ax[1]]/2; d=size[axis]/2; r=min(r,w,h)
+    ring=[]
+    for cu,cv,a0 in ((w-r,h-r,0),(-(w-r),h-r,math.pi/2),(-(w-r),-(h-r),math.pi),(w-r,-(h-r),1.5*math.pi)):
+        for i in range(seg+1):
+            a=a0+math.pi/2*i/seg;ring.append((cu+r*math.cos(a),cv+r*math.sin(a),math.cos(a),math.sin(a)))
+    def P(u,v,t):
+        q=[0.,0.,0.];q[ax[0]]=u;q[ax[1]]=v;q[axis]=t;return tuple(q)
+    p=[];n=[];idx=[];N=len(ring)
+    for t in (-d,d):
+        for u,v,nu,nv in ring:p.append(P(u,v,t));n.append(P(nu,nv,0))
+    for i in range(N):
+        j=(i+1)%N;idx.extend((i,j,N+j,i,N+j,N+i))
+    for sgn,t in ((-1,-d),(1,d)):
+        c=len(p);p.append(P(0,0,t));n.append(P(0,0,sgn));st=len(p)
+        for u,v,_,_ in ring:p.append(P(u,v,t));n.append(P(0,0,sgn))
+        for i in range(N):idx.extend((c,st+i,st+(i+1)%N))
+    return orient(p,n,idx)
+
+def prism(outline,r,depth,seg=5):
+    """모서리를 둥글린 다각형(xy 평면)을 z 방향으로 민 판 — 세모 귀 같은 납작한 부품용."""
+    n=len(outline);ring=[]
+    for i in range(n):
+        a=outline[i-1];b=outline[i];c=outline[(i+1)%n]
+        d1=norm((b[0]-a[0],b[1]-a[1],0));d2=norm((c[0]-b[0],c[1]-b[1],0))
+        n1=(d1[1],-d1[0]);n2=(d2[1],-d2[0])
+        a1=math.atan2(n1[1],n1[0]);a2=math.atan2(n2[1],n2[0])
+        while a2<a1:a2+=TAU
+        ctr=None
+        # 꼭짓점 안쪽으로 r 만큼 들어간 원의 중심
+        bis=norm((n1[0]+n2[0],n1[1]+n2[1],0));half=(a2-a1)/2
+        dist=r/max(.2,math.cos(half));ctr=(b[0]-bis[0]*dist,b[1]-bis[1]*dist)
+        for k in range(seg+1):
+            t=a1+(a2-a1)*k/seg;ring.append((ctr[0]+r*math.cos(t),ctr[1]+r*math.sin(t),math.cos(t),math.sin(t)))
+    p=[];nn=[];idx=[];N=len(ring);d=depth/2
+    for z in (-d,d):
+        for u,v,nu,nv in ring:p.append((u,v,z));nn.append((nu,nv,0))
+    for i in range(N):
+        j=(i+1)%N;idx.extend((i,j,N+j,i,N+j,N+i))
+    cx=sum(q[0] for q in ring)/N;cy=sum(q[1] for q in ring)/N
+    for sgn,z in ((-1,-d),(1,d)):
+        c=len(p);p.append((cx,cy,z));nn.append((0,0,sgn));st=len(p)
+        for u,v,_,_ in ring:p.append((u,v,z));nn.append((0,0,sgn))
+        for i in range(N):idx.extend((c,st+i,st+(i+1)%N))
+    return orient(p,nn,idx)
+
 class Pet:
+    """Body cube: x ±.56, y .24~1.36, z ±.50 (front face z=.50). Legs y 0~.28."""
+    FRONT=.50
     def __init__(self,id,name,color):
         self.id=id;self.name=name;self.color=color;self.parts=[]
     def mesh(self,name,geo,pos=(0,0,0),color=None,scale=(1,1,1),rot=None):
         self.parts.append(dict(name=name,geo=geo,pos=pos,color=color or self.color,scale=scale,rot=rot))
     def box(self,name,pos,size,color=None,r=.09,rot=None):
         self.mesh(name,boxmesh(size,r),pos,color,rot=rot)
+    def band(self,name,pos,size,color=None,r=.29,axis=2,rot=None):
+        self.mesh(name,slab(size,r,axis),pos,color,rot=rot)
     def ell(self,name,pos,size,color=None,rot=None):
         self.mesh(name,sphere(),pos,color,size,rot)
     def path(self,name,points,radii,color=None):self.mesh(name,tube(points,radii),color=color)
-    def body(self,color=None,size=(1.12,1.12,.96),center=(0,.82,0)):
-        self.box('body',center,size,color,r=.15)
-    def feet(self,color=None,count=4):
-        for x in (-.32,.32):
-            for z in ((-.28,.29) if count==4 else (.12,)):
-                self.box('foot_'+('L' if x<0 else 'R')+('_back' if z<0 else '_front'),(x,.13,z),(.29,.26,.32),color,r=.08)   # PNG처럼 짧고 통통한 다리
-    def eyes(self,y=.94,x=.235,z=.51):
+    # 몸통: 그림처럼 모서리가 크게 둥근 정육면체
+    def body(self,color=None,size=(1.12,1.12,1.0),center=(0,.80,0),r=.28):
+        self.box('body',center,size,color,r=r)
+    # 다리: 네 모서리 아래의 짧고 둥근 기둥 (이름 foot_* 는 걷기 동작에서 사용)
+    def feet(self,color=None,count=4,hoof=None):
+        zs=(-.27,.27) if count==4 else (.10,)
+        for x in (-.31,.31):
+            for z in zs:
+                name='foot_'+('L' if x<0 else 'R')+('_back' if z<0 else '_front')
+                self.box(name,(x,.15,z),(.28,.30,.28),color,r=.12)
+    # 눈: 큰 흰자 + 큰 검은 눈동자 (그림처럼 살짝 아래·안쪽을 봄)
+    def eyes(self,y=.90,x=.22,z=None,size=1.0,white='F6F3FC',pupil='2E2933'):
+        z=self.FRONT if z is None else z
         for side in (-1,1):
-            self.ell('eye_white_'+str(side),(x*side,y,z),(.165,.18,.095),'F8F5FF')
-            self.ell('pupil_'+str(side),(x*side-.014,y-.014,z+.085),(.083,.105,.027),'37313F')
-    def smile(self,y=.62,z=.501):
-        pts=[(-.11,y+.045,z),(-.07,y-.003,z+.012),(0,y-.025,z+.017),(.07,y-.003,z+.012),(.11,y+.045,z)]
-        self.path('smile',pts,[.017]*5,'533541')
-    def nose(self,pos=(0,.72,.56),size=(.075,.055,.047),color='4C3540'):self.ell('nose',pos,size,color)
-    def muzzle(self,color='EBC0AA',y=.71):self.ell('muzzle',(0,y,.518),(.235,.15,.07),color)
-    def ears(self,color=None,kind='round',inner=None):
+            self.ell('eye_white_'+str(side),(x*side,y,z+.005),(.145*size,.15*size,.07),white)
+            self.ell('pupil_'+str(side),(x*side-.018*side,y-.022,z+.058),(.088*size,.10*size,.03),pupil)
+    # 웃는 입 (닫힘)
+    def smile(self,y=.60,z=None,w=.09,color='3E2A33'):
+        z=self.FRONT if z is None else z
+        pts=[(-w,y+.035,z),(-w*.6,y-.002,z+.01),(0,y-.02,z+.014),(w*.6,y-.002,z+.01),(w,y+.035,z)]
+        self.path('smile',pts,[.016]*5,color)
+    # 벌린 입 + 분홍 혀 (그림의 '헤' 하고 웃는 입)
+    def mouth(self,y=.58,z=None,w=.12,h=.09):
+        z=self.FRONT if z is None else z
+        # 위는 평평하고 아래가 둥근 'D' 모양 → 웃으며 벌린 입
+        arc=lambda W,H:[(W,0,0),(-W,0,0)]+[(W*math.cos(t),H*math.sin(t),0) for t in [math.pi+math.pi*i/10 for i in range(1,10)]]
+        self.mesh('mouth',prism(arc(w,h*1.5),.012,.03),(0,y+h*.55,z+.012),'5E2734')
+        self.ell('tongue',(0,y-h*.55,z+.03),(w*.5,h*.36,.02),'EE7F93')
+    def nose(self,pos,size=(.075,.055,.045),color='4C3540'):self.ell('nose',pos,size,color)
+    def muzzle(self,color,y=.66,w=.24,h=.17,z=None,depth=.08):
+        z=self.FRONT if z is None else z
+        self.ell('muzzle',(0,y,z+.01),(w,h,depth),color)
+    def round_ears(self,color=None,inner=None,x=.38,y=1.36,z=.10,size=.17):
         for side in (-1,1):
-            if kind=='round':
-                self.ell('ear_'+str(side),(side*.4,1.4,.01),(.17,.17,.095),color)
-                if inner:self.ell('ear_inner_'+str(side),(side*.4,1.4,.09),(.102,.105,.025),inner)
-            elif kind=='point':
-                self.path('ear_'+str(side),[(side*.4,1.27,.03),(side*.45,1.58,.03)],[.145,.008],color)
+            self.ell('ear_'+str(side),(side*x,y,z),(size,size,size*.62),color)
+            if inner:self.ell('ear_inner_'+str(side),(side*x,y-.01,z+size*.52),(size*.6,size*.6,.03),inner)
+    def point_ears(self,color=None,inner=None,x=.40,y=1.33,z=.16,tilt=.35):
+        for side in (-1,1):
+            rot=quat((0,0,1),-side*tilt)
+            self.path('ear_'+str(side),[(side*x,y,z),(side*(x+.07),y+.26,z)],[.15,.02],color)
+            if inner:self.path('ear_inner_'+str(side),[(side*x,y+.01,z+.07),(side*(x+.06),y+.2,z+.06)],[.085,.012],inner)
     def export(self):
         buf=bytearray();views=[];access=[];meshes=[];nodes=[];mats=[];matmap={};cache={}
         def acc(values,components,typ,comp):
@@ -143,117 +218,172 @@ class Pet:
         return dict(id=self.id,name=self.name,file=f'pet-{self.id}.glb',bytes=len(glb),parts=root,triangles=sum(len(a['geo'][2])//3 for a in self.parts))
 
 def make(id,name,c):return Pet(id,name,c)
-def plain(p,muzzle=None,smile=True):
-    p.body();p.feet();p.eyes()
-    if muzzle:p.muzzle(muzzle);p.nose((0,.76,.6))
-    if smile:p.smile()
-    return p
+F=Pet.FRONT
 def pet_models():
     pets=[]
-    p=make('bee','꿀벌','F9C532');p.body();p.feet('363044');p.eyes();p.smile()
-    p.box('black_band',(0,.82,-.12),(1.133,1.13,.25),'363044',.08)
+    # 꿀벌: 노란 몸, 뒤쪽 검은 띠, 더듬이, 큰 반투명 날개, 검은 다리, 작은 벌린 입
+    p=make('bee','꿀벌','F7B932');p.body();p.feet('3C3446');p.eyes(.88)
+    p.ell('mouth',(0,.62,F),(.05,.045,.03),'B0402F')
+    p.band('black_band',(0,.80,-.10),(1.135,1.135,.26),'3C3446')
     for s in (-1,1):
-        p.ell('wing_'+str(s),(s*.25,1.55,-.08),(.22,.39,.05),'DBD5F5',quat((0,0,1),s*-.55))
-        p.path('antenna_'+str(s),[(s*.18,1.35,.24),(s*.2,1.53,.25),(s*.27,1.61,.23)],[.04,.04,.055],'363044')
+        # 날개: 두께를 주고 뒤로 눕히고 바깥으로 벌려서 위에서 봐도 입체적으로 (큰 날개 + 뒤쪽 작은 날개)
+        lean=lambda tz,ty,tx:quat_mul(quat_mul(quat((0,1,0),ty),quat((1,0,0),tx)),quat((0,0,1),tz))
+        p.ell('wing_'+str(s),(s*.26,1.66,-.12),(.24,.40,.11),'DCD6F4',lean(s*-.45,s*.55,-.35))
+        p.ell('wing_small_'+str(s),(s*.30,1.50,-.30),(.15,.24,.09),'CFC8EE',lean(s*-.9,s*.7,-.6))
+        p.path('antenna_'+str(s),[(s*.17,1.30,.30),(s*.19,1.50,.32),(s*.27,1.55,.30)],[.045,.045,.06],'3C3446')
     pets.append(p)
-    p=plain(make('rabbit','토끼','C97A57'),'EDC9BB');
+    # 토끼: 긴 귀(안쪽 살구색), 분홍 코, 흰 볼, 흰 꼬리
+    p=make('rabbit','토끼','D9774B');p.body(size=(1.32,1.12,1.14));p.feet();FR=.57   # 펭귄처럼 통통하게 (앞뒤로 두껍게)
+    p.eyes(.86,.27,FR)
+    p.ell('cheek',(-.06,.63,FR+.005),(.09,.07,.04),'F6DCCF');p.ell('cheek',(.06,.63,FR+.005),(.09,.07,.04),'F6DCCF')
+    p.nose((0,.71,FR+.04),(.07,.05,.04),'EE7A98')
     for s in (-1,1):
-        rot=quat((0,0,1),-s*.16);p.box('ear_'+str(s),(s*.3,1.68,0),(.46,.8,.16),r=.2,rot=rot)   # PNG: 넓고 끝이 둥근 귀
-        p.box('ear_inner_'+str(s),(s*.3,1.68,.085),(.27,.58,.025),'EFA27F',.12,rot)
-    p.nose((0,.76,.63),(.072,.055,.04),'E58B9E');p.ell('tail',(0,.63,-.58),(.18,.18,.18),'F7E8DF');pets.append(p)
-    p=plain(make('caterpillar','애벌레','259E7B'))
-    p.box('yellow_back',(0,1.26,-.12),(1.14,.26,.8),'F6C941',.12)
+        rot=quat((0,0,1),-s*.12)
+        p.ell('ear_'+str(s),(s*.30,1.62,.02),(.22,.38,.11),rot=rot)
+        p.ell('ear_inner_'+str(s),(s*.30,1.60,.10),(.13,.27,.03),'F2A982',rot)
+    p.ell('tail',(.24,.70,-.60),(.18,.18,.16),'F6F2F4');pets.append(p)
+    # 애벌레: 초록 몸, 등 위 노란 띠, 더듬이 두 개, 아래 다리 6개, 벌린 입
+    p=make('caterpillar','애벌레','2FA265');p.body();p.eyes(.90,.21);p.mouth(.60,w=.13,h=.08)
+    p.band('yellow_back',(0,.93,-.14),(1.135,.90,.14),'F7C43A')   # 등 위를 가로질러 양옆으로 내려오는 노란 줄 (안장 모양)
     for s in (-1,1):
-        p.ell('antenna_'+str(s),(s*.25,1.44,.22),(.085,.19,.08))
-        for z in (-.35,0,.35):p.ell('side_foot',(s*.51,.15,z),(.12,.11,.12))
+        p.box('antenna_'+str(s),(s*.22,1.44,.26),(.17,.24,.17),r=.08)
+        for z in (-.32,0,.32):p.box('side_foot',(s*.33,.13,z),(.22,.26,.22),r=.1)
     pets.append(p)
-    p=make('chick','병아리','F8C232');p.body();p.feet('EC8B31',2);p.eyes()
-    p.ell('beak',(0,.71,.59),(.15,.095,.115),'ED8A2D')
-    for s in (-1,1):p.ell('wing_'+str(s),(s*.62,.8,.02),(.2,.16,.3),rot=quat((0,0,1),s*.3))   # PNG: 옆으로 펼친 둥근 날개
-    for dz in (-.1,.1):p.box('crest',(0,1.43,dz),(.2,.22,.17),r=.08)   # 두 갈래 볏
+    # 병아리: 노란 몸, 위 볏, 옆 날개, 주황 부리·발
+    p=make('chick','병아리','F9C02E');p.body();p.feet('F07A2E',2);p.eyes(.88)
+    p.ell('beak',(0,.66,F+.04),(.12,.08,.10),'F27C30')
+    for s in (-1,1):p.ell('wing_'+str(s),(s*.66,.82,.06),(.20,.10,.24),rot=quat((0,0,1),s*.35))
+    p.box('crest',(0,1.44,.02),(.18,.24,.42),r=.09);p.box('crest',(0,1.40,-.22),(.16,.18,.16),r=.07)
     pets.append(p)
-    p=make('cow','소','E8E5F1');p.body();p.feet('DCAABB');p.eyes()
-    p.muzzle('E9B0BA',.69)
+    # 소: 흰 몸, 검은 점, 주황 뿔, 분홍 코·발굽·귀 안쪽
+    p=make('cow','소','E4DCF6');p.body()
+    for x in (-.30,.30):
+        for z in (-.27,.27):
+            name='foot_'+('L' if x<0 else 'R')+('_back' if z<0 else '_front')
+            p.box(name,(x,.15,z),(.25,.30,.25),r=.11)
+    p.eyes(.88,.21);p.ell('snout',(0,.60,F+.03),(.26,.15,.08),'F29AA8')
     for s in (-1,1):
-        p.ell('nostril_'+str(s),(s*.095,.7,.588),(.025,.04,.012),'8D5667')
-        p.path('horn_'+str(s),[(s*.26,1.34,-.04),(s*.3,1.58,-.02)],[.10,.012],'CFA178')
-        p.ell('ear_'+str(s),(s*.57,1.21,.02),(.19,.105,.085));p.ell('ear_inner_'+str(s),(s*.59,1.21,.088),(.11,.06,.02),'D7A0AE')
-    for pos,size in [((.565,.88,-.15),(.012,.21,.17)),((.565,1.18,.21),(.012,.13,.12)),((-.565,.77,-.05),(.012,.19,.19)),((.25,1.386,-.18),(.16,.008,.12))]:p.ell('spot',pos,size,'484353')
+        p.ell('nostril_'+str(s),(s*.09,.61,F+.10),(.03,.045,.012),'7A3A4A')
+        p.path('horn_'+str(s),[(s*.25,1.32,.05),(s*.30,1.58,.06)],[.10,.02],'E0A05A')
+        p.ell('ear_'+str(s),(s*.62,1.14,.12),(.17,.10,.10),rot=quat((0,0,1),s*-.3));p.ell('ear_inner_'+str(s),(s*.64,1.13,.19),(.10,.055,.02),'F29AA8',quat((0,0,1),s*-.3))
+    for pos,size in [((.565,.80,-.12),(.012,.24,.22)),((.565,1.12,.22),(.012,.10,.09)),((-.565,.86,-.02),(.012,.20,.20)),((.12,1.365,-.16),(.17,.012,.14))]:p.ell('spot',pos,size,'3A3442')
     pets.append(p)
-    p=make('fish','물고기','F39534');p.body(size=(1.02,.92,.66),center=(0,.72,0));p.eyes(.83,.21,.365);p.smile(.52,.35)
-    p.box('white_band',(0,.72,-.07),(1.035,.93,.20),'F6F0EF',.12)
-    for z in (-.195,.05):p.box('black_band',(0,.72,z),(1.04,.935,.035),'3B3542',.014)
-    for s in (-1,1):p.ell('side_fin',(s*.57,.65,.04),(.16,.12,.045))
-    p.ell('dorsal',(0,1.25,-.06),(.06,.22,.2),'3B3542')
-    p.ell('tail',(0,.72,-.56),(.34,.3,.095));pets.append(p)
-    p=make('penguin','펭귄','49455F');p.body();p.feet('EC9236',2)
-    p.box('face_belly',(0,.74,.486),(.77,.93,.045),'DBD7EB',.14);p.eyes(.96,.2,.54)
-    p.ell('beak',(0,.73,.64),(.105,.08,.105),'EC9236')
-    for s in (-1,1):p.ell('flipper',(s*.61,.73,0),(.18,.11,.30),rot=quat((0,0,1),-s*.2))
+    # 물고기: 주황 흰띠(검은 테두리), 검은 등지느러미, 옆·꼬리 지느러미, 벌린 입
+    p=make('fish','물고기','F2862E');p.body(size=(1.04,.96,.92),center=(0,.70,0),r=.28);FF=.46
+    p.eyes(.82,.20,FF);p.mouth(.52,FF,.10,.065)
+    p.band('white_band',(0,.70,-.08),(1.055,.975,.34),'F4F0F8')
+    for z in (-.265,.105):p.band('black_band',(0,.70,z),(1.06,.98,.04),'3A3442')
+    for s in (-1,1):p.ell('side_fin',(s*.58,.52,.20),(.20,.16,.08),rot=quat((0,1,0),s*.9))
+    p.ell('dorsal',(0,1.22,-.12),(.06,.28,.26),'3A3442',quat((1,0,0),.6))
+    p.ell('tail',(0,.72,-.52),(.08,.15,.15));p.ell('tail',(0,.90,-.72),(.07,.22,.15),rot=quat((1,0,0),.65));p.ell('tail',(0,.54,-.72),(.07,.22,.15),rot=quat((1,0,0),-.65))
     pets.append(p)
-    p=make('pig','돼지','D984B5');p.body();p.feet();p.eyes();p.smile(.53)
-    p.ell('snout',(0,.72,.57),(.21,.15,.095),'E39AC3')
-    for s in (-1,1):p.ell('nostril',(s*.075,.73,.66),(.025,.044,.012),'7D496B')
-    for s in (-1,1):p.ell('floppy_ear',(s*.36,1.33,.20),(.19,.065,.18),rot=quat((0,0,1),s*.2))
-    points=[(.35+math.cos(t)*.10,.78+math.sin(t)*.10,-.58-.04*t) for t in [i*TAU/15 for i in range(19)]];p.path('curly_tail',points,[.035]*len(points));pets.append(p)
-    p=plain(make('beaver','비버','B77550'),'C59975');p.ears()
-    for s in (-1,1):p.box('tooth',(s*.062,.55,.59),(.11,.17,.035),'F4ECE2',.025)
-    p.ell('paddle_tail',(0,1.05,-.63),(.28,.49,.07),'81543E',quat((1,0,0),-.18));pets.append(p)
-    p=make('crab','게','E95A35');p.body(size=(1.12,.92,.96),center=(0,.68,0));p.eyes(.76,.23,.53);p.smile(.5,.5)   # PNG: 거의 정육면체 몸
-    for s in (-1,1):
-        for i,z in enumerate((-.3,0,.30)):
-            p.path('leg_'+str(s)+'_'+str(i),[(s*.5,.42,z),(s*.66,.3,z+.03),(s*.7,.12,z+.05)],[.085,.075,.05],'D9452B')   # 짧고 굵은 옆다리
-        # 집게: 몸 위 앞쪽 모서리에 붙은 큰 집게 (PNG)
-        p.ell('claw_base',(s*.5,1.16,.3),(.2,.18,.15),'D9452B')
-        for dx in (-.1,.1):p.ell('claw_finger',(s*.5+dx,1.33,.3),(.08,.15,.09),'D9452B',quat((0,0,1),dx*2.5))
+    # 펭귄: 남색 몸, 하트 모양 연보라 얼굴·배, 옆 날개, 주황 부리·발
+    p=make('penguin','펭귄','4A4565');p.body();p.feet('F08A3A',2)
+    for s in (-1,1):p.ell('face',(s*.20,.98,F-.02),(.27,.28,.05),'DCD3F2')
+    p.box('face',(0,.64,F-.02),(.84,.68,.07),'DCD3F2',.22)
+    p.eyes(.92,.20,F+.025);p.ell('beak',(0,.70,F+.06),(.10,.07,.09),'F08A3A')
+    for s in (-1,1):p.ell('flipper_'+str(s),(s*.68,.78,.04),(.24,.12,.26),rot=quat((0,0,1),-s*.25))
     pets.append(p)
-    p=make('boar','멧돼지','B86843');p.body();p.feet();p.eyes();p.ears();p.muzzle('C47A55',.70)   # PNG: 둥근 귀
+    # 돼지: 분홍 몸, 앞으로 접힌 세모 귀, 큰 코, 웃는 입, 꼬불 꼬리
+    p=make('pig','돼지','EE80B5');p.body();p.feet();p.eyes(.90,.22)
+    p.ell('snout',(0,.68,F+.04),(.20,.14,.09),'F294C2')
+    for s in (-1,1):p.ell('nostril_'+str(s),(s*.07,.69,F+.13),(.03,.05,.012),'6B2E4C')
+    p.smile(.49)
+    tri=[(-.17,0,0),(.17,0,0),(0,.30,0)]
+    for s in (-1,1):p.mesh('ear_'+str(s),prism(tri,.05,.06),(s*.30,1.30,.22),rot=quat((1,0,0),1.0))
+    pts=[(.30+math.cos(t)*.07,.92+math.sin(t)*.07,-.53-.03*t) for t in [i*TAU/14 for i in range(17)]];p.path('curly_tail',pts,[.03]*len(pts));pets.append(p)
+    # 비버: 갈색 몸, 작은 귀, 살구색 주둥이, 큰 앞니 두 개, 뒤에 선 넓적 꼬리
+    p=make('beaver','비버','C97A4E');p.body();p.feet();p.eyes(.90);p.round_ears(x=.36,size=.13)
+    p.muzzle('F2B48C',.62,.25,.15);p.nose((0,.71,F+.08),(.09,.065,.05),'5A3328')
+    for s in (-1,1):p.box('tooth',(s*.05,.51,F+.06),(.09,.14,.04),'FFFFFF',.03)
+    p.ell('paddle_tail',(0,1.08,-.64),(.34,.50,.14),'7A4630',quat((1,0,0),-.15));pets.append(p)
+    # 게: 빨간 정육면체, 위 앞쪽에 큰 집게, 옆 다리 3쌍, 벌린 입
+    p=make('crab','게','F25A38');p.body(size=(1.16,.96,1.0),center=(0,.62,0));p.eyes(.68,.21);p.mouth(.40)
     for s in (-1,1):
-        p.ell('nostril',(s*.08,.72,.585),(.025,.04,.012),'694735')
-        p.path('tusk',[(s*.21,.61,.52),(s*.30,.68,.58),(s*.31,.78,.59)],[.065,.045,.005],'EFE1BD')
-    for z in (-.36,-.14,.08):p.box('bristle_ridge',(0,1.42,z),(.5,.22,.2),'94502F',.09)   # 등을 따라 큰 갈기
+        for i,z in enumerate((-.30,0,.30)):
+            p.path('leg_'+str(s)+'_'+str(i),[(s*.50,.26,z),(s*.64,.16,z),(s*.66,.09,z)],[.11,.105,.095],'E2453A')   # 짧고 통통한 옆다리
+        p.ell('claw_base',(s*.46,1.10,.30),(.18,.16,.13),'E2453A')
+        for dx in (-.09,.09):p.ell('claw_finger',(s*.46+dx,1.26,.30),(.08,.14,.09),'E2453A',quat((0,0,1),dx*2.6))
     pets.append(p)
-    p=plain(make('koala','코알라','8E88AA'),'BCB4D1')
+    # 멧돼지: 갈색 몸, 등 갈기, 둥근 귀, 큰 코, 휜 엄니, 벌린 입
+    p=make('boar','멧돼지','C9714B');p.body();p.feet();p.eyes(.92);p.round_ears(x=.36,size=.14)
+    p.ell('snout',(0,.68,F+.04),(.22,.14,.08),'D27E58')
     for s in (-1,1):
-        p.ell('ear',(s*.6,1.26,.0),(.33,.33,.13));p.ell('ear_inner',(s*.6,1.26,.12),(.2,.2,.026),'B9B1CF')   # PNG: 위 모서리의 큰 둥근 귀
-    p.nose((0,.82,.65),(.12,.18,.07),'51485E');pets.append(p)
-    p=make('monkey','원숭이','C47648');p.body();p.feet()
-    for s in (-1,1):p.ell('ear_'+str(s),(s*.6,.95,0),(.12,.25,.25));p.ell('ear_inner_'+str(s),(s*.67,.95,0),(.03,.16,.16),'EFA98A')   # PNG: 옆쪽 가운데의 큰 귀
-    p.box('face_mask',(0,.86,.49),(.84,.83,.06),'DCB493',.18);p.eyes(.98,.22,.55);p.muzzle('E4BC9C');p.nose((0,.74,.61),color='805A4C');p.smile(.61,.59)
-    p.path('curled_tail',[(.12,.58,-.48),(.18,1.03,-.64),(.21,1.52,-.59),(.37,1.66,-.48),(.50,1.56,-.4),(.43,1.43,-.39)],[.055]*6);pets.append(p)
-    p=make('parrot','앵무새','E45936');p.body();p.feet('E9983C',2);p.eyes()
-    p.path('beak',[(0,.75,.54),(0,.76,.7),(0,.63,.75)],[.12,.095,.01],'59516B')
-    for s in (-1,1):p.ell('wing',(s*.6,.78,0),(.14,.3,.3),'6A64D8',quat((0,0,1),s*.35))   # PNG: 옆으로 뻗은 파란 날개
-    for dx in (-.11,.11):p.ell('tail_feather',(dx,1.3,-.52),(.1,.32,.11),'6A64D8',quat((1,0,0),-.75))   # 뒤쪽 위로 뻗은 꼬리깃 두 개
+        p.ell('nostril',(s*.065,.70,F+.11),(.025,.04,.012),'5A3328')
+        p.path('tusk',[(s*.20,.60,F+.02),(s*.30,.66,F+.06),(s*.31,.78,F+.06)],[.06,.045,.006],'F2DDB4')
+    p.mouth(.50,w=.08,h=.06)
+    for z in (-.36,-.12,.12):p.ell('bristle_ridge',(0,1.40,z),(.22,.17,.17),'B5603C')
     pets.append(p)
-    p=plain(make('deer','사슴','C38B66'),'E2BBA0');p.ears(kind='point')
+    # 코알라: 회보라 몸, 위 모서리 큰 둥근 귀(밝은 안쪽), 큰 코, 밝은 주둥이, 벌린 입
+    p=make('koala','코알라','7F7BA0');p.body();p.feet('A9A2CC');p.eyes(.90,.26)
+    p.muzzle('A9A2CC',.56,.28,.18,depth=.05)
+    p.nose((0,.74,F+.07),(.13,.16,.08),'4E4766');p.mouth(.50,F+.03,.12,.075)
     for s in (-1,1):
-        p.path('antler',[(s*.26,1.36,-.03),(s*.32,1.61,-.02),(s*.42,1.83,0)],[.055,.05,.025],'81563C')
-        p.path('antler_branch',[(s*.33,1.62,-.02),(s*.17,1.75,0)],[.04,.022],'81563C')
+        p.ell('ear_'+str(s),(s*.66,1.06,-.06),(.36,.36,.14));p.ell('ear_inner_'+str(s),(s*.68,1.04,.06),(.22,.22,.03),'B8B0DA')
     pets.append(p)
-    p=make('elephant','코끼리','B2ACD7');p.body();p.feet();p.eyes(.97,.22,.51)
-    for s in (-1,1):
-        p.ell('ear',(s*.62,.91,-.01),(.26,.38,.11),'A49BCB')
-        p.path('tusk',[(s*.2,.70,.49),(s*.25,.64,.70),(s*.22,.74,.79)],[.06,.045,.005],'F5E8D3')
-    p.path('trunk',[(0,.80,.54),(0,.62,.70),(0,.36,.82),(0,.31,1.0),(0,.40,1.08)],[.12,.115,.10,.09,.075]);pets.append(p)
-    p=plain(make('giraffe','기린','EFC445'),'D9A16E');p.ears(inner='DFA775')
-    for s in (-1,1):
-        p.path('ossicone',[(s*.22,1.35,0),(s*.25,1.63,.0)],[.055,.05]);p.ell('ossicone_tip',(s*.25,1.64,0),(.09,.075,.08),'B47B52')
-    for x,y,sz in [(-.36,1.15,.08),(.34,1.17,.09),(0,1.25,.1)]:p.ell('face_spot',(x,y,.489),(sz,sz,.009),'B78051')
-    for y,z,sz in [(.7,-.2,.16),(1.1,.18,.11),(1.2,-.26,.1)]:p.ell('side_spot',(.563,y,z),(.009,sz,sz),'B78051')
+    # 원숭이: 주황 몸, 하트 모양 살구색 얼굴, 옆 큰 귀, 볼록 주둥이, 꼬리
+    p=make('monkey','원숭이','E38C55');p.body();p.feet()
+    for s in (-1,1):p.ell('face_mask',(s*.19,.90,F-.02),(.27,.26,.05),'F8BE9E')
+    p.ell('face_mask',(0,.64,F-.02),(.40,.26,.05),'F8BE9E')
+    p.eyes(.88,.19,F+.02);p.muzzle('F8BE9E',.62,.17,.12,F+.03,.07)
+    p.nose((0,.68,F+.11),(.05,.035,.02),'5A3328');p.smile(.58,F+.11,.06)
+    for s in (-1,1):p.ell('ear_'+str(s),(s*.60,.92,0),(.10,.22,.22));p.ell('ear_inner_'+str(s),(s*.67,.92,0),(.03,.14,.14),'F8BE9E')
+    curl=[(.85,-.50),(1.15,-.60),(1.45,-.62),(1.70,-.68),(1.88,-.82),(1.90,-1.00),(1.78,-1.12),(1.62,-1.10),(1.56,-.98),(1.62,-.90)]
+    p.path('curled_tail',[(.12,y,z) for y,z in curl],[.065]*len(curl));pets.append(p)
+    # 앵무새: 빨간 몸, 파란 날개·꼬리깃, 회색 부리, 벌린 입, 주황 발
+    p=make('parrot','앵무새','F05A38');p.body();p.feet('F28C2E',2);p.eyes(.90,.21)
+    p.path('beak',[(0,.80,F+.02),(0,.80,F+.16),(0,.66,F+.20)],[.11,.08,.01],'5E5866')
+    for s in (-1,1):p.ell('wing_'+str(s),(s*.64,.80,-.04),(.20,.08,.30),'6B63E0',quat((0,0,1),s*.45))
+    for dx in (-.10,.10):p.ell('tail_feather',(dx,1.30,-.50),(.10,.30,.11),'6B63E0',quat((1,0,0),-.75))
     pets.append(p)
-    p=plain(make('polarbear','북극곰','DCD5F3'),'EFEAFB');p.ears(inner='C8BEEA');pets.append(p)   # PNG: 연보라 톤
-    p=make('lion','사자','E3B13F');p.body();p.feet();p.ears()
-    p.box('mane',(0,.87,.29),(1.24,1.26,.52),'C85F35',.22)
-    p.box('face',(0,.86,.58),(.92,.95,.11),'E8B13F',.16);p.eyes(.99,.21,.66);p.ell('muzzle',(0,.71,.65),(.235,.15,.07),'EAD0A6');p.nose((0,.75,.73));p.smile(.60,.73)
-    p.path('tail',[(0,.55,-.5),(0,1.1,-.68),(0,1.49,-.65)],[.045]*3);p.ell('tail_tuft',(0,1.5,-.65),(.12,.14,.10),'AE7148');pets.append(p)
-    p=plain(make('tiger','호랑이','E9A13B'),'F0E2CE');p.ears(inner='F0CE9E')
+    # 사슴: 갈색 몸, 뾰족 귀, 가지 뿔, 살구 주둥이, 웃는 입
+    p=make('deer','사슴','D9784E');p.body();p.feet();p.eyes(.90)
+    for s in (-1,1):p.ell('ear_'+str(s),(s*.60,1.30,.12),(.27,.13,.08),rot=quat((0,0,1),s*.5));p.ell('ear_inner_'+str(s),(s*.61,1.30,.19),(.17,.075,.02),'F2A982',quat((0,0,1),s*.5))
+    p.muzzle('F2B48C',.62,.24,.16);p.nose((0,.70,F+.08),(.07,.05,.04),'5A3328');p.smile(.58,F+.08,.07)
     for s in (-1,1):
-        for y in (.66,1.13):p.box('cheek_stripe',(s*.43,y,.491),(.16,.065,.022),'49424D',.025,quat((0,0,1),s*.2))
-    for z in (-.27,.0,.27):
-        p.box('top_stripe',(0,1.386,z),(1.00,.018,.085),'49424D',.008)
-        for s in (-1,1):p.box('side_stripe',(s*.563,1.08,z),(.018,.47,.085),'49424D',.008)
-    p.path('tail',[(0,.6,-.49),(0,1.07,-.69),(.0,1.58,-.62)],[.065]*3);p.ell('tail_tip',(0,1.59,-.62),(.08,.1,.075),'ECE2D5');pets.append(p)
+        p.path('antler',[(s*.22,1.34,.0),(s*.26,1.58,.0),(s*.36,1.80,.0)],[.085,.08,.07],'8A4A30')
+        p.path('antler_branch',[(s*.27,1.58,.0),(s*.13,1.72,.0)],[.07,.06],'8A4A30')
+    pets.append(p)
+    # 코끼리: 연보라 몸, 옆 큰 귀, 아래로 휜 코, 상아, 작게 벌린 입
+    p=make('elephant','코끼리','9C99DC');p.body();p.feet();p.eyes(.92,.22)
+    for s in (-1,1):
+        p.ell('ear_'+str(s),(s*.60,.90,.12),(.07,.36,.32),'8783CC')
+        p.path('tusk',[(s*.16,.64,F+.02),(s*.24,.58,F+.16),(s*.22,.66,F+.24)],[.05,.04,.006],'F2E8D8')
+    p.ell('mouth',(0,.55,F+.005),(.06,.05,.03),'5E2734')
+    p.path('trunk',[(0,.78,F),(0,.66,F+.12),(0,.46,F+.18),(0,.36,F+.28),(0,.42,F+.36)],[.11,.10,.09,.08,.07]);pets.append(p)
+    # 기린: 노란 몸, 갈색 점, 뿔(공), 귀, 주둥이, 웃는 입
+    p=make('giraffe','기린','F6B42E');p.body();p.feet();p.eyes(.90)
+    for s in (-1,1):p.ell('ear_'+str(s),(s*.58,1.24,.10),(.20,.11,.08),rot=quat((0,0,1),s*.35));p.ell('ear_inner_'+str(s),(s*.59,1.24,.16),(.12,.06,.02),'F2A982',quat((0,0,1),s*.35))
+    p.muzzle('F2A56E',.60,.25,.17);p.nose((0,.70,F+.08),(.06,.045,.04),'6B3A2E');p.smile(.58,F+.08,.06)
+    for s in (-1,1):
+        p.path('ossicone',[(s*.22,1.34,0),(s*.24,1.60,0)],[.07,.065]);p.ell('ossicone_tip',(s*.24,1.66,0),(.12,.11,.12),'D9773E')
+    for x,y,sz in [(-.34,1.14,.08),(.32,1.12,.07),(.02,1.22,.06)]:p.ell('face_spot',(x,y,F+.002),(sz,sz,.012),'D9773E')
+    for y,z,sz in [(.62,-.20,.15),(1.06,.16,.10),(1.12,-.28,.11)]:p.ell('side_spot',(.562,y,z),(.012,sz,sz),'D9773E')
+    for x,z,sz in [(.0,.0,.13),(-.28,-.26,.09)]:p.ell('top_spot',(x,1.362,z),(sz,.012,sz),'D9773E')
+    pets.append(p)
+    # 북극곰: 연보라 흰 몸, 둥근 귀, 흰 주둥이, 검은 코, 웃는 입
+    p=make('polarbear','북극곰','D9D0F4');p.body();p.feet();p.eyes(.92,.22);p.round_ears(inner='C4B9EC',x=.38,size=.15)
+    p.muzzle('EEE9FB',.62,.24,.17);p.nose((0,.70,F+.09),(.08,.06,.045),'2E2A3A');p.smile(.59,F+.09,.07)
+    pets.append(p)
+    # 사자: 노란 몸, 얼굴을 감싼 둥근 주황 갈기, 앞 귀, 베이지 주둥이, 벌린 입, 꼬리 끝 털
+    p=make('lion','사자','F4A93A');p.body();p.feet()
+    p.box('mane',(0,.84,.24),(1.36,1.32,.64),'D8643A',.32)
+    p.box('face',(0,.82,.56),(.84,.82,.12),'F4A93A',.24);FL=.62
+    p.round_ears(inner='EE9C80',x=.33,y=1.20,z=.58,size=.12)
+    p.eyes(.90,.20,FL);p.muzzle('F2D2B4',.64,.20,.14,FL,.06);p.nose((0,.72,FL+.06),(.07,.05,.04),'5A3328');p.mouth(.57,FL+.05,.07,.055)
+    p.path('tail',[(.10,.80,-.48),(.12,1.00,-.62),(.12,1.30,-.66),(.10,1.55,-.60)],[.055]*4);p.ell('tail_tuft',(.08,1.62,-.56),(.14,.16,.12),'D8643A',quat((1,0,0),-.4));pets.append(p)
+    # 호랑이: 주황 몸, 검은 줄(위·옆), 큰 흰 주둥이, 귀, 줄무늬 꼬리 흰 끝
+    p=make('tiger','호랑이','F28A2E');p.body();p.feet();p.eyes(.94,.22);p.round_ears(inner='F5B388',x=.38,size=.14)
+    p.ell('muzzle',(0,.56,F-.01),(.37,.27,.06),'EDE4F2')
+    p.nose((0,.68,F+.05),(.075,.055,.04),'3E3445');p.smile(.58,F+.05,.07)
+    for z in (-.30,.04):p.band('stripe',(0,1.00,z),(1.135,.76,.15),'3E3445')   # 등 위 굵은 줄 2개 (옆구리 중간까지)
+    for s in (-1,1):
+        p.ell('low_stripe',(s*.562,.52,-.13),(.014,.07,.20),'3E3445')   # 등 줄 아래 옆구리에 줄 하나 더
+        for y in (.98,.80):p.ell('cheek_stripe',(s*.44,y,.42),(.12,.04,.035),'3E3445',quat((0,1,0),s*.75))   # 얼굴 양옆 무늬
+    p.ell('forehead_stripe',(0,1.32,.36),(.07,.03,.12),'3E3445',quat((1,0,0),-.6))
+    p.path('tail',[(.12,.70,-.48),(.16,1.08,-.68),(.12,1.52,-.62)],[.085]*3)
+    for y in (.98,1.28):p.ell('tail_stripe',(.145,y,-.665),(.095,.035,.095),'3E3445')
+    p.ell('tail_tip',(.12,1.60,-.62),(.13,.13,.13),'EDE4F2');pets.append(p)
     return pets
 
 if __name__=='__main__':

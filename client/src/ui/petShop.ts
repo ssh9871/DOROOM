@@ -29,6 +29,8 @@ const itemEffects = (item: Item) => [
 
 const shopCell = '<svg class="shop-cell" viewBox="0 0 20 20" aria-hidden="true"><path d="m10 1.5 7.5 4.3v8.4L10 18.5l-7.5-4.3V5.8Z" stroke="currentColor" stroke-width="1.5" fill="currentColor" fill-opacity=".18"/><path d="M10 5.5V14.5M6 7.75l8 4.5m0-4.5-8 4.5" stroke="currentColor" stroke-width="1.2" stroke-linecap="round"/></svg>';
 
+const minusIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
+const plusIcon = '<svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8 3.5v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg>';
 const MAX_BUY = 99;   // 한 번에 살 수 있는 최대 개수 (서버도 1~99만 받음)
 const clampCount = (count: number | undefined) => Math.min(MAX_BUY, Math.max(1, count ?? 1));
 
@@ -49,9 +51,9 @@ function renderShopItem(item: Item, quantity: number, balance: number | null, bu
       <p class="shop-item-owned">보유 <b>${quantity.toLocaleString()}개</b></p>
     </div>
     <div class="shop-qty" role="group" aria-label="${name} 구매 개수">
-      <button type="button" id="qty-dec-${item.itemId}" data-qty-dec="${item.itemId}" aria-label="${name} 1개 줄이기" ${locked || amount <= 1 ? 'disabled' : ''}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button type="button" id="qty-dec-${item.itemId}" data-qty-dec="${item.itemId}" aria-label="${name} 1개 줄이기" ${locked || amount <= 1 ? 'disabled' : ''}>${minusIcon}</button>
       <output id="qty-${item.itemId}" aria-live="polite">${amount}<small>개</small></output>
-      <button type="button" id="qty-inc-${item.itemId}" data-qty-inc="${item.itemId}" aria-label="${name} 1개 늘리기" ${locked || amount >= MAX_BUY ? 'disabled' : ''}><svg viewBox="0 0 16 16" aria-hidden="true"><path d="M3.5 8h9M8 3.5v9" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"/></svg></button>
+      <button type="button" id="qty-inc-${item.itemId}" data-qty-inc="${item.itemId}" aria-label="${name} 1개 늘리기" ${locked || amount >= MAX_BUY ? 'disabled' : ''}>${plusIcon}</button>
     </div>
     <button class="shop-buy${insufficient ? ' is-short' : ''}" id="buy-${item.itemId}" data-buy="${item.itemId}"
       aria-label="${name} ${amount}개, ${total}셀 · ${action}${insufficient ? ' (보유 셀 부족)' : ''}" ${locked ? 'aria-disabled="true"' : ''}>
@@ -248,6 +250,7 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
   let busy = false;
   let buying: number | null = null;
   let buyCount: Record<number, number> = {};   // 돌봄 용품별로 고른 구매 개수 (기본 1개)
+  let useCount: Record<string, number> = {};   // 성장·상호작용에서 한 번에 쓸 개수 ('feed-아이템id' · 'potion-아이템id')
   // 서버에서 불러온 값
   let serverItems: Item[] = [];
   let owned: Record<number, number> = {};
@@ -300,6 +303,17 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
       <div class="care-meter-head"><span>${label}</span><b>${value.toLocaleString()} / ${max.toLocaleString()}</b></div>
       <div class="care-meter-bar" role="meter" aria-label="${label}" aria-valuemin="0" aria-valuemax="${max}" aria-valuenow="${value}"><i style="width:${max ? Math.min(100, value / max * 100) : 100}%"></i></div></div>`;
   const itemsOf = (types: string[]) => serverItems.filter(item => types.includes(item.itemType));
+  // 한 번에 쓸 개수: 1개 ~ limit(보유·필요 개수, 최대 99)
+  const useLimit = (limit: number) => Math.max(1, Math.min(MAX_BUY, limit));
+  const useAmount = (key: string, limit: number) => Math.min(Math.max(1, useCount[key] ?? 1), useLimit(limit));
+  const useStepper = (key: string, label: string, limit: number, off: boolean) => {
+    const max = useLimit(limit), amount = useAmount(key, limit), name = escapeHtml(label);
+    return `<div class="shop-qty care-qty" role="group" aria-label="${name} 사용 개수">
+      <button type="button" id="use-dec-${key}" data-use-dec="${key}" data-use-max="${max}" aria-label="${name} 1개 줄이기" ${off || amount <= 1 ? 'disabled' : ''}>${minusIcon}</button>
+      <output aria-live="polite">${amount}<small>개</small></output>
+      <button type="button" id="use-inc-${key}" data-use-inc="${key}" data-use-max="${max}" aria-label="${name} 1개 늘리기" ${off || amount >= max ? 'disabled' : ''}>${plusIcon}</button>
+    </div>`;
+  };
   const careView = (mode: 'grow' | 'play') => {
     if (!myPets.length) return `<div class="shop-coming"><p class="care-eyebrow">내 펫</p><h3>아직 함께하는 펫이 없어요</h3><p>뽑기에서 첫 펫을 만나보세요.</p><button data-goto="0">뽑기로 가기</button></div>`;
     const pet = myPets.find(p => p.userPetId === careId) ?? myPets[0]!;
@@ -320,7 +334,8 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
         <div class="care-actions">
           <article class="care-action"><div class="care-action-icon">${itemArt('EXP_POTION')}</div><div><h4>${potion ? escapeHtml(itemName(potion)) : '경험치 포션'}</h4>
             <p>${potion ? `경험치 +${potion.expGain} · 보유 ${potionQty}개` : '지금은 살 수 없어요'}</p></div>
-            <button data-potion="${potion?.itemId ?? ''}" ${busy || !potion || !potionQty || pet.expToNext === 0 ? 'disabled' : ''}>사용</button></article>
+            ${potion ? useStepper(`potion-${potion.itemId}`, itemName(potion), potionQty, busy || !potionQty || pet.expToNext === 0) : ''}
+            <button data-potion="${potion?.itemId ?? ''}" ${busy || !potion || !potionQty || pet.expToNext === 0 ? 'disabled' : ''}>${potion && useAmount(`potion-${potion.itemId}`, potionQty) > 1 ? `${useAmount(`potion-${potion.itemId}`, potionQty)}개 사용` : '사용'}</button></article>
           <article class="care-action"><div class="care-action-icon">${itemArt('EVOLVE_STONE')}</div><div><h4>${evo ? `${pet.evolutionStage + 1}단계 진화` : '진화'}</h4>
             <p>${evo ? `Lv. ${evo.requiredLevel} 이상 · <span class="cell-icon" aria-hidden="true">⬡</span> ${evo.cellCost.toLocaleString()}` : evoNote}</p></div>
             <button data-evolve ${busy || !evoReady ? 'disabled' : ''}>진화하기</button></article>
@@ -334,8 +349,15 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
             const qty = owned[item.itemId] ?? 0;
             const full = (item.hungerRestore <= 0 || pet.hunger >= 100) && (item.affectionRestore <= 0 || pet.affection >= 100);
             const effect = [item.hungerRestore > 0 ? `배고픔 +${item.hungerRestore}` : '', item.affectionRestore > 0 ? `호감도 +${item.affectionRestore}` : ''].filter(Boolean).join(' · ');
+            // 가득 찰 때까지 필요한 개수보다 많이는 못 고르게 (보유 개수·99개도 넘지 않게)
+            const need = Math.max(item.hungerRestore > 0 ? Math.ceil((100 - pet.hunger) / item.hungerRestore) : 0,
+              item.affectionRestore > 0 ? Math.ceil((100 - pet.affection) / item.affectionRestore) : 0);
+            const key = `feed-${item.itemId}`;
+            const amount = useAmount(key, Math.min(qty, need));
+            const verb = item.itemType === 'TOY' ? '놀아주기' : '주기';
             return `<article class="care-action"><div class="care-action-icon">${itemArt(item.itemType)}</div><div><h4>${escapeHtml(item.name)}</h4><p>${effect} · 보유 ${qty}개</p></div>
-              <button data-feed="${item.itemId}" ${busy || !qty || full ? 'disabled' : ''}>${item.itemType === 'TOY' ? '놀아주기' : '주기'}</button></article>`;
+              ${useStepper(key, item.name, Math.min(qty, need), busy || !qty || full)}
+              <button data-feed="${item.itemId}" ${busy || !qty || full ? 'disabled' : ''}>${amount > 1 ? (item.itemType === 'TOY' ? `${amount}번 놀아주기` : `${amount}개 주기`) : verb}</button></article>`;
           }).join('')}
           <article class="care-action"><div class="care-action-icon"><svg viewBox="0 0 120 120" aria-hidden="true"><path d="M60 92C34 74 26 60 26 48a16 16 0 0 1 34-6 16 16 0 0 1 34 6c0 12-8 26-34 44z" fill="#E59A8C"/></svg></div>
             <div><h4>쓰다듬기</h4><p>호감도 +5 · 아이템 없이</p></div><button data-pat ${busy || pet.affection >= 100 ? 'disabled' : ''}>쓰다듬기</button></article>
@@ -355,7 +377,16 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
       }
     } catch { /* 진화 조건만 못 불러옴 */ }
   };
-  const selectCare = (id: number) => { careId = id; careDetail = null; result.textContent = ''; refresh(); void loadCareDetail(); };
+  const selectCare = (id: number) => { careId = id; careDetail = null; useCount = {}; result.textContent = ''; refresh(); void loadCareDetail(); };
+  const changeUse = (button: HTMLButtonElement) => {
+    if (busy) return;
+    const inc = !!button.dataset.useInc, key = (button.dataset.useInc ?? button.dataset.useDec)!, max = Number(button.dataset.useMax) || 1;
+    useCount[key] = Math.min(max, Math.max(1, Math.min(Math.max(1, useCount[key] ?? 1), max) + (inc ? 1 : -1)));
+    refresh();
+    const same = panel.querySelector<HTMLButtonElement>(`[data-use-${inc ? 'inc' : 'dec'}="${key}"]`);
+    const other = panel.querySelector<HTMLButtonElement>(`[data-use-${inc ? 'dec' : 'inc'}="${key}"]`);
+    (same && !same.disabled ? same : other)?.focus({ preventScroll: true });
+  };
   const careAct = async (run: () => Promise<{ pet: Pet; message: string }>, focusSelector: string) => {
     if (busy || buying !== null || careId === null) return;
     busy = true; refresh();
@@ -513,15 +544,28 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
     const named = (pet: Pet) => pet.nickname ?? pet.species.name;
     if (button.dataset.feed) {
       const itemId = Number(button.dataset.feed);
-      void careAct(async () => { const r = await feedPet(careId!, itemId); return { pet: r.pet, message: `${named(r.pet)}에게 ${r.used.name}을(를) 줬어요.` }; }, `[data-feed="${itemId}"]`); return;
+      const times = Math.max(1, useCount[`feed-${itemId}`] ?? 1);
+      void careAct(async () => {
+        const r = await feedPet(careId!, itemId, times);   // 서버가 한 번에 처리 (가득 차면 필요한 만큼만 씀)
+        const done = r.quantity ?? 1;
+        return { pet: r.pet, message: `${named(r.pet)}에게 ${r.used.name}을(를) ${times > 1 ? `${done}개 ` : ''}줬어요.${done < times ? ` (가득 차서 ${done}개만 썼어요)` : ''}` };
+      }, `[data-feed="${itemId}"]`); return;
     }
     if (button.hasAttribute('data-pat')) { void careAct(async () => { const pet = await patPet(careId!); return { pet, message: `${named(pet)}을(를) 쓰다듬었어요.` }; }, '[data-pat]'); return; }
     if (button.dataset.potion) {
       const itemId = Number(button.dataset.potion);
-      void careAct(async () => { const pet = await usePetPotion(careId!, itemId); return { pet, message: `경험치 포션을 썼어요. 지금 Lv. ${pet.level}이에요.` }; }, '[data-potion]'); return;
+      const times = Math.max(1, useCount[`potion-${itemId}`] ?? 1);
+      const had = owned[itemId] ?? 0;
+      void careAct(async () => {
+        const pet = await usePetPotion(careId!, itemId, times);   // 서버가 한 번에 처리 (최대 레벨이 되면 거기서 멈춤)
+        const left = (await getInventory()).items.find(entry => entry.item.itemId === itemId)?.quantity ?? 0;
+        const done = Math.max(1, had - left);
+        return { pet, message: `경험치 포션을 ${times > 1 ? `${done}개 ` : ''}썼어요. 지금 Lv. ${pet.level}이에요.${done < times ? ` (최대 레벨이 되어 ${done}개만 썼어요)` : ''}` };
+      }, '[data-potion]'); return;
     }
     if (button.hasAttribute('data-evolve')) { void careAct(async () => { const pet = await evolvePet(careId!); return { pet, message: `${named(pet)}이(가) ${pet.evolutionStage}단계로 진화했어요!` }; }, '[data-evolve]'); return; }
     if (button.dataset.qtyDec || button.dataset.qtyInc) { changeCount(button); return; }
+    if (button.dataset.useDec || button.dataset.useInc) { changeUse(button); return; }
     if (button.dataset.buy) { void purchase(button); return; }
     else if (button.dataset.draw) { void draw(Number(button.dataset.draw)); return; }
     else if (button.dataset.demoDraws) { void moreDraws(Number(button.dataset.demoDraws)); return; }
@@ -570,7 +614,7 @@ export function connectPetShop(dialog: HTMLDialogElement, onChange: () => void) 
     phase = 'idle'; lastDraw = null; newKey = null; history = null;
   });
   // 상점을 닫으면 고른 구매 개수는 다시 1개로
-  dialog.addEventListener('close', () => { buyCount = {}; });
+  dialog.addEventListener('close', () => { buyCount = {}; useCount = {}; });
   return () => {
     if (buying === null) { loading = true; loadError = ''; }
     selectTab(2);

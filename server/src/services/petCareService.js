@@ -18,6 +18,18 @@ async function lockPet(client, userId, userPetId) {
   return rows[0];
 }
 
+/** 한 번에 쓸 개수 (생략하면 1개, 1~99) */
+function quantityOf(quantity) {
+  const qty = quantity === undefined || quantity === null ? 1 : Number(quantity);
+  if (!Number.isInteger(qty) || qty < 1 || qty > 99) throw new AppError('VALIDATION', 'quantity는 1~99');
+  return qty;
+}
+/** 가진 개수가 qty 이상인지 먼저 확인 (모자라면 아무것도 바꾸지 않음) */
+async function ensureOwned(client, userId, itemId, qty) {
+  const { rows } = await client.query('SELECT quantity FROM user_item WHERE user_id = $1 AND item_id = $2', [userId, itemId]);
+  if (!rows.length || rows[0].quantity < qty) throw new AppError('NOT_ENOUGH_ITEM');
+}
+
 async function activeItem(client, itemId, types) {
   if (!Number.isSafeInteger(itemId)) throw new AppError('VALIDATION', 'itemId 오류');
   const { rows } = await client.query('SELECT * FROM item WHERE item_id = $1 AND is_active', [itemId]);
@@ -25,20 +37,28 @@ async function activeItem(client, itemId, types) {
   return rows[0];
 }
 
-/** 밥·간식·장난감 주기 → {pet, used} */
-export async function feedPet(client, userId, userPetId, itemId) {
+/** 밥·간식·장난감 주기 (quantity개 한 번에) → {pet, used, quantity}
+ *  배고픔·호감도가 가득 차면 더 쓸모없는 개수는 쓰지 않는다 → quantity 는 실제로 쓴 개수 */
+export async function feedPet(client, userId, userPetId, itemId, quantity) {
+  const want = quantityOf(quantity);
   const pet = await lockPet(client, userId, userPetId);
   const item = await activeItem(client, itemId, Object.keys(INTERACTION_OF));
-  const hunger = Math.min(100, pet.hunger + item.hunger_restore);
-  const affection = Math.min(100, pet.affection + item.affection_restore);
-  if (hunger === pet.hunger && affection === pet.affection) throw new AppError('VALIDATION', '이미 가득 차 있어요');
-  await useItem(client, userId, item.item_id, 1);
+  const need = (now, gain) => (gain > 0 && now < 100 ? Math.ceil((100 - now) / gain) : 0);
+  const useful = Math.max(need(pet.hunger, item.hunger_restore), need(pet.affection, item.affection_restore));
+  if (useful === 0) throw new AppError('VALIDATION', '이미 가득 차 있어요');
+  await ensureOwned(client, userId, item.item_id, want);
+  const qty = Math.min(want, useful);
+  const hunger = Math.min(100, pet.hunger + item.hunger_restore * qty);
+  const affection = Math.min(100, pet.affection + item.affection_restore * qty);
+  await useItem(client, userId, item.item_id, qty);
   await client.query(
     'UPDATE user_pet SET hunger = $2, affection = $3, last_interacted_at = now() WHERE user_pet_id = $1',
     [userPetId, hunger, affection]);
-  await client.query('INSERT INTO pet_interaction_log (user_pet_id, interaction_type, item_id) VALUES ($1, $2, $3)',
-    [userPetId, INTERACTION_OF[item.item_type], item.item_id]);
-  return { pet: await getPet(client, userId, userPetId), used: itemDto(item) };
+  // 기록은 지금처럼 1개당 1줄 (테이블 구조 변경 없음)
+  await client.query(
+    'INSERT INTO pet_interaction_log (user_pet_id, interaction_type, item_id) SELECT $1, $2, $3 FROM generate_series(1, $4)',
+    [userPetId, INTERACTION_OF[item.item_type], item.item_id, qty]);
+  return { pet: await getPet(client, userId, userPetId), used: itemDto(item), quantity: qty };
 }
 
 /** 쓰다듬기 (아이템 없음) → Pet */
@@ -52,14 +72,22 @@ export async function patPet(client, userId, userPetId) {
   return getPet(client, userId, userPetId);
 }
 
-/** 경험치 포션 → Pet */
-export async function usePotion(client, userId, userPetId, itemId) {
+/** 경험치 포션 (quantity개 한 번에) → Pet
+ *  중간에 최대 레벨이 되면 거기서 멈추고, 남은 포션은 쓰지 않는다 */
+export async function usePotion(client, userId, userPetId, itemId, quantity) {
+  const want = quantityOf(quantity);
   await lockPet(client, userId, userPetId);
   const item = await activeItem(client, itemId, ['EXP_POTION']);
   const before = await getPet(client, userId, userPetId);
   if (before.expToNext === 0) throw new AppError('VALIDATION', '이미 최대 레벨이에요');
-  await useItem(client, userId, item.item_id, 1);
-  await addPetExp(client, userPetId, item.exp_gain);
+  await ensureOwned(client, userId, item.item_id, want);
+  let used = 0;
+  while (used < want) {
+    const after = await addPetExp(client, userPetId, item.exp_gain);
+    used += 1;
+    if (after.expToNext === 0) break;
+  }
+  await useItem(client, userId, item.item_id, used);
   return getPet(client, userId, userPetId);
 }
 
